@@ -46,8 +46,14 @@
   let bestTime = null;
   let minUsed = null;
   let ferryHops = null;
+  let parentNode = null;
+  let parentEdge = null;
   let goUsed = null;
+  let goParentNode = null;
+  let goParentEdge = null;
   let backUsed = null;
+  let selectedDest = null; // { name, lat, lon }
+  let dataReadyPromise = null;
   let heapNode = new Uint32Array(262144);
   let heapTime = new Float64Array(262144);
   let heapUsed = new Float64Array(262144);
@@ -129,7 +135,11 @@
     bestTime = new Float64Array(nNodes);
     minUsed = new Float64Array(nNodes);
     ferryHops = new Uint8Array(nNodes);
+    parentNode = new Int32Array(nNodes);
+    parentEdge = new Int32Array(nNodes);
     goUsed = new Float64Array(nNodes);
+    goParentNode = new Int32Array(nNodes);
+    goParentEdge = new Int32Array(nNodes);
     backUsed = new Float64Array(nNodes);
 
     return {
@@ -250,7 +260,7 @@
     return { usableFullWh, budgetWh, minUsedAllowed, winterMult };
   }
 
-  function runDijkstra(startNode, isReverse, params, outMinUsed) {
+  function runDijkstra(startNode, isReverse, params, outMinUsed, outParentNode = null, outParentEdge = null) {
     const { nNodes, fwdHead, fwdTo, fwdDist, fwdTime, fwdClimb, fwdDescent, fwdFlags, revHead, revFrom, revEidx } = graph;
     const { budgetWh, minUsedAllowed, winterMult } = params;
     const whPerM = (state.whPerKm / 1000.0) * winterMult;
@@ -261,6 +271,8 @@
     bestTime.fill(Infinity);
     minUsed.fill(Infinity);
     ferryHops.fill(255);
+    parentNode.fill(-1);
+    parentEdge.fill(-1);
     heapSize = 0;
 
     bestTime[startNode] = 0;
@@ -291,7 +303,7 @@
         if (flg > 0 && !useFerry) continue;
 
         const nextHops = flg > 0 ? uHops + 1 : uHops;
-        if (nextHops > 2) continue;
+        if (nextHops > 1) continue;
 
         const dt = fwdTime[eIdx];
         let newUsed;
@@ -320,18 +332,19 @@
         if (faster || muchCheaper) {
           if (faster) bestTime[v] = newTime;
           if (newUsed < minUsed[v]) minUsed[v] = newUsed;
-          if (faster || muchCheaper) {
-            // Track ferry hop count for this label so post-ferry wave propagates cleanly
-            if (ferryHops[v] === 255 || muchCheaper || nextHops < ferryHops[v]) {
-              ferryHops[v] = nextHops;
-            }
+          if (ferryHops[v] === 255 || muchCheaper || nextHops < ferryHops[v]) {
+            ferryHops[v] = nextHops;
           }
+          parentNode[v] = u;
+          parentEdge[v] = eIdx;
           heapPush(v, newTime, newUsed);
         }
       }
     }
 
     outMinUsed.set(minUsed);
+    if (outParentNode) outParentNode.set(parentNode);
+    if (outParentEdge) outParentEdge.set(parentEdge);
   }
 
   // Green -> Lime -> Yellow -> Orange -> Red (little-endian ABGR for Uint32Array)
@@ -422,6 +435,7 @@
       if (src) src.pause();
       updateFerryLayer(null, Infinity);
       updateSuperchargerLayer(null, Infinity);
+      updateDestRouteLayer(null, null);
       return;
     }
 
@@ -439,7 +453,7 @@
     const { budgetWh, winterMult } = params;
 
     // 1. Run Dijkstra from selected Supercharger
-    runDijkstra(sc.node, false, params, goUsed);
+    runDijkstra(sc.node, false, params, goUsed, goParentNode, goParentEdge);
     if (state.roundTrip) {
       runDijkstra(sc.node, true, params, backUsed);
       for (let i = 0; i < graph.nNodes; i++) {
@@ -503,6 +517,11 @@
       gauge.style.setProperty("--soc-from", state.arrivePct + "%");
       gauge.style.setProperty("--soc-to", state.departPct + "%");
       document.getElementById("soc-label").textContent = `${state.departPct}% → ${state.arrivePct}%`;
+    }
+    if (selectedDest) {
+      evaluateDestination(selectedDest);
+    } else {
+      updateDestRouteLayer(null, null);
     }
   }
 
@@ -592,9 +611,10 @@
     });
   }
 
-  function setupMapLayers() {
+  function ensureReachOverlaySource() {
+    if (!map || !grid || !map.isStyleLoaded()) return;
+    if (map.getSource("reach-overlay")) return;
     const beforeId = findFirstSymbolLayerId();
-
     map.addSource("reach-overlay", {
       type: "canvas",
       canvas: reachCanvas,
@@ -611,7 +631,7 @@
         id: "reach-overlay-layer",
         type: "raster",
         source: "reach-overlay",
-        layout: { visibility: "none" },
+        layout: { visibility: selectedScIdx >= 0 ? "visible" : "none" },
         paint: {
           "raster-opacity": 0.9,
           "raster-resampling": "linear",
@@ -619,6 +639,12 @@
       },
       beforeId
     );
+  }
+
+  function setupMapLayers() {
+    const beforeId = findFirstSymbolLayerId();
+
+    ensureReachOverlaySource();
 
     map.addSource("ferry-routes", {
       type: "geojson",
@@ -653,6 +679,40 @@
       },
       beforeId
     );
+
+    map.addSource("dest-route", {
+      type: "geojson",
+      data: { type: "FeatureCollection", features: [] },
+    });
+    map.addLayer(
+      {
+        id: "dest-route-line",
+        type: "line",
+        source: "dest-route",
+        paint: {
+          "line-color": "#38bdf8",
+          "line-width": 4,
+          "line-opacity": 0.92,
+        },
+      },
+      beforeId
+    );
+
+    map.addSource("dest-pin", {
+      type: "geojson",
+      data: { type: "FeatureCollection", features: [] },
+    });
+    map.addLayer({
+      id: "dest-pin-circle",
+      type: "circle",
+      source: "dest-pin",
+      paint: {
+        "circle-radius": 8,
+        "circle-color": "#38bdf8",
+        "circle-stroke-width": 2.5,
+        "circle-stroke-color": "#ffffff",
+      },
+    });
 
     map.addSource("superchargers", {
       type: "geojson",
@@ -713,7 +773,8 @@
       },
     });
 
-    updateReachability();
+    updateSuperchargerLayer(null, Infinity);
+    if (graph && grid) updateReachability();
   }
 
   function bindMapInteractions() {
@@ -741,9 +802,10 @@
       hoverPopup.remove();
     });
 
-    map.on("click", "sc-hit", (e) => {
+    map.on("click", "sc-hit", async (e) => {
       const f = e.features[0];
       selectedScIdx = f.properties.idx;
+      if (dataReadyPromise) await dataReadyPromise;
       updateReachability({ animate: true, pan: true });
     });
 
@@ -777,6 +839,413 @@
     map.on("click", "ferry-routes-ev", onFerryClick);
   }
 
+  // ---------- Curated Japan Cities & Landmarks (Instant Offline Search) ----------
+  const JP_PLACES = [
+    { name: "东京 (Tokyo)", keys: "东京 東京 tokyo", lat: 35.6812, lon: 139.7671 },
+    { name: "新宿 (Shinjuku)", keys: "新宿 shinjuku", lat: 35.6896, lon: 139.7006 },
+    { name: "涩谷 (Shibuya)", keys: "涩谷 渋谷 shibuya", lat: 35.6580, lon: 139.7016 },
+    { name: "羽田机场 (Haneda)", keys: "羽田机场 羽田空港 haneda", lat: 35.5494, lon: 139.7798 },
+    { name: "成田机场 (Narita)", keys: "成田机场 成田空港 narita", lat: 35.7720, lon: 140.3929 },
+    { name: "横滨 (Yokohama)", keys: "横滨 横浜 yokohama", lat: 35.4437, lon: 139.6380 },
+    { name: "镰仓 (Kamakura)", keys: "镰仓 鎌倉 kamakura", lat: 35.3192, lon: 139.5467 },
+    { name: "箱根 (Hakone)", keys: "箱根 hakone", lat: 35.2324, lon: 139.1069 },
+    { name: "富士山 / 河口湖", keys: "富士山 河口湖 fuji kawaguchiko", lat: 35.4982, lon: 138.7686 },
+    { name: "热海 (Atami)", keys: "热海 熱海 atami 伊豆", lat: 35.0962, lon: 139.0717 },
+    { name: "轻井泽 (Karuizawa)", keys: "轻井泽 軽井沢 karuizawa", lat: 36.3483, lon: 138.5970 },
+    { name: "日光 (Nikko)", keys: "日光 nikko", lat: 36.7199, lon: 139.6982 },
+    { name: "草津温泉 (Kusatsu)", keys: "草津温泉 草津 kusatsu", lat: 36.6207, lon: 138.5961 },
+    { name: "千叶 (Chiba)", keys: "千叶 千葉 chiba", lat: 35.6074, lon: 140.1065 },
+    { name: "埼玉 / 大宫", keys: "埼玉 大宫 大宮 saitama omiya", lat: 35.9063, lon: 139.6240 },
+    { name: "宇都宫 (Utsunomiya)", keys: "宇都宫 宇都宮 utsunomiya", lat: 36.5551, lon: 139.8828 },
+    { name: "水户 (Mito)", keys: "水户 水戸 mito", lat: 36.3659, lon: 140.4712 },
+    { name: "高崎 (Takasaki)", keys: "高崎 takasaki", lat: 36.3219, lon: 139.0033 },
+    { name: "甲府 (Kofu)", keys: "甲府 kofu", lat: 35.6621, lon: 138.5683 },
+    { name: "静冈 (Shizuoka)", keys: "静冈 静岡 shizuoka", lat: 34.9756, lon: 138.3828 },
+    { name: "滨松 (Hamamatsu)", keys: "滨松 浜松 hamamatsu", lat: 34.7108, lon: 137.7261 },
+    { name: "名古屋 (Nagoya)", keys: "名古屋 nagoya", lat: 35.1815, lon: 136.9066 },
+    { name: "岐阜 (Gifu)", keys: "岐阜 gifu", lat: 35.4233, lon: 136.7607 },
+    { name: "高山 (Takayama)", keys: "高山 飞驒 飛騨 takayama", lat: 36.1461, lon: 137.2522 },
+    { name: "白川乡 (Shirakawa-go)", keys: "白川乡 白川郷 shirakawa", lat: 36.2578, lon: 136.9062 },
+    { name: "金泽 (Kanazawa)", keys: "金泽 金沢 kanazawa", lat: 36.5613, lon: 136.6562 },
+    { name: "富山 (Toyama)", keys: "富山 toyama", lat: 36.6959, lon: 137.2137 },
+    { name: "长野 (Nagano)", keys: "长野 長野 nagano", lat: 36.6486, lon: 138.1942 },
+    { name: "松本 (Matsumoto)", keys: "松本 matsumoto", lat: 36.2380, lon: 137.9720 },
+    { name: "白马 (Hakuba)", keys: "白马 白馬 hakuba", lat: 36.6982, lon: 137.8619 },
+    { name: "新潟 (Niigata)", keys: "新潟 新泻 niigata", lat: 37.9162, lon: 139.0364 },
+    { name: "京都 (Kyoto)", keys: "京都 kyoto", lat: 35.0116, lon: 135.7681 },
+    { name: "大阪 (Osaka)", keys: "大阪 osaka", lat: 34.6937, lon: 135.5023 },
+    { name: "关西机场 (KIX)", keys: "关西机场 関西空港 kansai kix", lat: 34.4320, lon: 135.2304 },
+    { name: "神户 (Kobe)", keys: "神户 神戸 kobe", lat: 34.6901, lon: 135.1955 },
+    { name: "奈良 (Nara)", keys: "奈良 nara", lat: 34.6851, lon: 135.8048 },
+    { name: "和歌山 (Wakayama)", keys: "和歌山 wakayama", lat: 34.2305, lon: 135.1708 },
+    { name: "白滨 (Shirahama)", keys: "白滨 白浜 shirahama", lat: 33.6795, lon: 135.3446 },
+    { name: "三重 / 伊势", keys: "伊势 伊勢 三重 ise mie", lat: 34.4875, lon: 136.7094 },
+    { name: "广岛 (Hiroshima)", keys: "广岛 広島 hiroshima", lat: 34.3853, lon: 132.4553 },
+    { name: "冈山 (Okayama)", keys: "冈山 岡山 okayama", lat: 34.6551, lon: 133.9195 },
+    { name: "鸟取 (Tottori)", keys: "鸟取 鳥取 tottori", lat: 35.5011, lon: 134.2351 },
+    { name: "高松 (Takamatsu)", keys: "高松 香川 takamatsu", lat: 34.3428, lon: 134.0466 },
+    { name: "松山 (Matsuyama)", keys: "松山 爱媛 matsuyama", lat: 33.8392, lon: 132.7657 },
+    { name: "仙台 (Sendai)", keys: "仙台 sendai", lat: 38.2682, lon: 140.8694 },
+    { name: "郡山 (Koriyama)", keys: "郡山 koriyama", lat: 37.4005, lon: 140.3597 },
+    { name: "福岛 (Fukushima)", keys: "福岛 福島 fukushima", lat: 37.7608, lon: 140.4747 },
+    { name: "盛冈 (Morioka)", keys: "盛冈 盛岡 morioka", lat: 39.7020, lon: 141.1545 },
+    { name: "青森 (Aomori)", keys: "青森 aomori", lat: 40.8221, lon: 140.7474 },
+    { name: "函馆 (Hakodate)", keys: "函馆 函館 hakodate", lat: 41.7687, lon: 140.7288 },
+    { name: "札幌 (Sapporo)", keys: "札幌 sapporo", lat: 43.0618, lon: 141.3545 },
+    { name: "小樽 (Otaru)", keys: "小樽 otaru", lat: 43.1907, lon: 140.9947 },
+    { name: "富良野 (Furano)", keys: "富良野 furano", lat: 43.3421, lon: 142.3832 },
+    { name: "旭川 (Asahikawa)", keys: "旭川 asahikawa", lat: 43.7706, lon: 142.3650 },
+    { name: "福冈 (Fukuoka)", keys: "福冈 福岡 博多 fukuoka hakata", lat: 33.5902, lon: 130.4017 },
+    { name: "长崎 (Nagasaki)", keys: "长崎 長崎 nagasaki", lat: 32.7503, lon: 129.8777 },
+    { name: "熊本 (Kumamoto)", keys: "熊本 kumamoto", lat: 32.8031, lon: 130.7079 },
+    { name: "别府 (Beppu)", keys: "别府 別府 大分 beppu oita", lat: 33.2846, lon: 131.4910 },
+    { name: "宫崎 (Miyazaki)", keys: "宫崎 宮崎 miyazaki", lat: 31.9077, lon: 131.4202 },
+    { name: "鹿儿岛 (Kagoshima)", keys: "鹿儿岛 鹿児島 kagoshima", lat: 31.5966, lon: 130.5571 },
+    { name: "那霸 (Naha)", keys: "那霸 那覇 冲绳 沖縄 naha okinawa", lat: 26.2124, lon: 127.6809 },
+  ];
+
+  function haversineKm(lat1, lon1, lat2, lon2) {
+    const r = 6371.0;
+    const p1 = (lat1 * Math.PI) / 180;
+    const p2 = (lat2 * Math.PI) / 180;
+    const dp = p2 - p1;
+    const dl = ((lon2 - lon1) * Math.PI) / 180;
+    const a = Math.sin(dp / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2;
+    return 2 * r * Math.asin(Math.min(1, Math.sqrt(a)));
+  }
+
+  function findNearestNode(lat, lon, requireReachableBudget = Infinity) {
+    if (!graph) return { node: -1, distKm: Infinity };
+    const { nNodes, nodeLat, nodeLon } = graph;
+    let bestIdx = -1;
+    let bestD = Infinity;
+    for (let i = 0; i < nNodes; i++) {
+      if (requireReachableBudget < Infinity && goUsed[i] > requireReachableBudget) continue;
+      // Fast equirectangular filter before haversine
+      const dLat = Math.abs(nodeLat[i] - lat);
+      if (dLat > 0.45) continue;
+      const dLon = Math.abs(nodeLon[i] - lon);
+      if (dLon > 0.55) continue;
+      const d = haversineKm(lat, lon, nodeLat[i], nodeLon[i]);
+      if (d < bestD) {
+        bestD = d;
+        bestIdx = i;
+      }
+    }
+    return { node: bestIdx, distKm: bestD };
+  }
+
+  function findUnboundedRoute(startNode, targetNode) {
+    const { nNodes, fwdHead, fwdTo, fwdDist, fwdTime, fwdClimb, fwdDescent, fwdFlags } = graph;
+    const params = computeEnergyParams();
+    const whPerM = (state.whPerKm / 1000.0) * params.winterMult;
+    const climbWh = CLIMB_WH_PER_M * params.winterMult;
+    const useFerry = state.ferry;
+    const useFerryCharge = state.ferry && state.ferryCharge;
+
+    bestTime.fill(Infinity);
+    parentNode.fill(-1);
+    parentEdge.fill(-1);
+    heapSize = 0;
+    bestTime[startNode] = 0;
+    heapPush(startNode, 0, 0);
+
+    let pops = 0;
+    while (heapSize > 0 && pops < 500000) {
+      const u = heapPop();
+      const curTime = popTime;
+      pops++;
+      if (u === targetNode) break;
+      if (curTime > bestTime[u]) continue;
+      for (let k = fwdHead[u]; k < fwdHead[u + 1]; k++) {
+        const flg = fwdFlags[k];
+        if (flg > 0 && !useFerry) continue;
+        const v = fwdTo[k];
+        const nt = curTime + fwdTime[k];
+        if (nt < bestTime[v]) {
+          bestTime[v] = nt;
+          parentNode[v] = u;
+          parentEdge[v] = k;
+          heapPush(v, nt, 0);
+        }
+      }
+    }
+
+    if (bestTime[targetNode] === Infinity) return null;
+    let distM = 0, timeS = 0, climbM = 0, totalWh = 0, usedFerry = false;
+    let cur = targetNode;
+    const coords = [];
+    while (cur !== -1) {
+      coords.push([graph.nodeLon[cur], graph.nodeLat[cur]]);
+      if (cur === startNode) break;
+      const e = parentEdge[cur];
+      const p = parentNode[cur];
+      if (e < 0 || p < 0) break;
+      const flg = fwdFlags[e];
+      distM += fwdDist[e];
+      timeS += fwdTime[e];
+      climbM += fwdClimb[e];
+      if (flg === 0) {
+        totalWh += fwdDist[e] * whPerM + fwdClimb[e] * climbWh - fwdDescent[e] * DESCENT_REGEN_WH_PER_M;
+      } else {
+        usedFerry = true;
+        if (flg === 2 && useFerryCharge) totalWh -= FERRY_CHARGE_WATTS * (fwdTime[e] / 3600.0);
+      }
+      cur = p;
+    }
+    coords.reverse();
+    return { distKm: distM / 1000.0, timeS, climbM, totalWh, usedFerry, coords };
+  }
+
+  function updateDestRouteLayer(routeCoords, dest) {
+    if (!map) return;
+    const rSrc = map.getSource("dest-route");
+    const pSrc = map.getSource("dest-pin");
+    if (rSrc) {
+      rSrc.setData(
+        routeCoords && routeCoords.length >= 2
+          ? { type: "FeatureCollection", features: [{ type: "Feature", geometry: { type: "LineString", coordinates: routeCoords } }] }
+          : { type: "FeatureCollection", features: [] }
+      );
+    }
+    if (pSrc) {
+      pSrc.setData(
+        dest
+          ? { type: "FeatureCollection", features: [{ type: "Feature", geometry: { type: "Point", coordinates: [dest.lon, dest.lat] } }] }
+          : { type: "FeatureCollection", features: [] }
+      );
+    }
+  }
+
+  function evaluateDestination(dest) {
+    const resEl = document.getElementById("dest-result");
+    const clearBtn = document.getElementById("btn-dest-clear");
+    if (!dest || selectedScIdx < 0 || !graph) {
+      resEl.classList.add("hidden");
+      clearBtn.classList.add("hidden");
+      updateDestRouteLayer(null, null);
+      return;
+    }
+    clearBtn.classList.remove("hidden");
+
+    const sc = superchargers[selectedScIdx];
+    const params = computeEnergyParams();
+    const { budgetWh, usableFullWh, winterMult } = params;
+    const offroadWhPerKm = state.whPerKm * 1.12 * winterMult * (state.roundTrip ? 2.0 : 1.0);
+
+    // Check nearest reachable node first, else overall nearest node
+    let snap = findNearestNode(dest.lat, dest.lon, budgetWh);
+    let reachable = snap.node >= 0 && (goUsed[snap.node] + snap.distKm * offroadWhPerKm) <= budgetWh;
+    if (!reachable) {
+      snap = findNearestNode(dest.lat, dest.lon, Infinity);
+    }
+
+    if (snap.node < 0 || snap.distKm > 45) {
+      resEl.className = "dest-result fail";
+      resEl.innerHTML = `<div class="dest-badge fail">✕ 暂无附近干线道路</div><div class="dest-details">${dest.name} 距离日本高速/国道网过远。</div>`;
+      updateDestRouteLayer(null, dest);
+      return;
+    }
+
+    const totalUsedWh = reachable ? (goUsed[snap.node] + snap.distKm * offroadWhPerKm) : Infinity;
+
+    if (reachable) {
+      // Reconstruct path from goParentNode / goParentEdge (or unbounded if roundTrip modified goUsed)
+      let distM = 0, timeS = 0, climbM = 0, usedFerry = false;
+      const coords = [[dest.lon, dest.lat]];
+      let cur = snap.node;
+      let steps = 0;
+      while (cur !== -1 && steps < 50000) {
+        coords.push([graph.nodeLon[cur], graph.nodeLat[cur]]);
+        if (cur === sc.node) break;
+        const e = goParentEdge[cur];
+        const p = goParentNode[cur];
+        if (e < 0 || p < 0) break;
+        distM += graph.fwdDist[e];
+        timeS += graph.fwdTime[e];
+        climbM += graph.fwdClimb[e];
+        if (graph.fwdFlags[e] > 0) usedFerry = true;
+        cur = p;
+        steps++;
+      }
+      coords.reverse();
+      if (coords.length < 2) coords.unshift([sc.lon, sc.lat]);
+
+      const remWh = Math.max(0, usableFullWh * (state.departPct / 100.0) - totalUsedWh);
+      const remPct = Math.max(0, Math.min(100, Math.round((remWh / usableFullWh) * 100)));
+      const totalKm = Math.round(distM / 1000.0 + snap.distKm);
+      const hrs = Math.floor(timeS / 3600);
+      const mins = Math.round((timeS % 3600) / 60);
+      const durStr = hrs > 0 ? `${hrs} 小时 ${mins} 分` : `${mins} 分钟`;
+
+      resEl.className = "dest-result ok";
+      resEl.innerHTML =
+        `<div class="dest-badge ok">✓ 可直达 ${dest.name}</div>` +
+        `<div class="dest-details">` +
+        `${state.roundTrip ? "往返返回起点预计剩余" : "预计到达剩余"} <b>${remPct}%</b> · 路程约 <b>${totalKm} km</b> · 驾车约 <b>${durStr}</b>` +
+        (climbM > 50 ? ` · 累计爬升 ${climbM} m` : "") +
+        (usedFerry ? ` · 含轮渡` : "") +
+        `</div>`;
+      updateDestRouteLayer(coords, dest);
+    } else {
+      // Unreachable in one charge -> compute exact shortfall & recommend relay Superchargers
+      const info = findUnboundedRoute(sc.node, snap.node);
+      let detailHtml = "";
+      if (info) {
+        const neededWh = (info.totalWh + snap.distKm * offroadWhPerKm) * (state.roundTrip ? 2.0 : 1.0);
+        const shortWh = Math.max(0, neededWh - budgetWh);
+        const shortKm = Math.round(shortWh / (state.whPerKm * winterMult));
+        detailHtml = `单程路网约 <b>${Math.round(info.distKm + snap.distKm)} km</b>，当前电量还差约 <b>${(shortWh / 1000).toFixed(1)} kWh</b>（约 ${shortKm} km）。`;
+        updateDestRouteLayer(info.coords.concat([[dest.lon, dest.lat]]), dest);
+      } else {
+        detailHtml = "单次电量无法直达该地点（可能需要跨海轮渡或中转补电）。";
+        updateDestRouteLayer(null, dest);
+      }
+
+      // Recommend top 2 reachable Superchargers closest to destination
+      const curDist = haversineKm(sc.lat, sc.lon, dest.lat, dest.lon);
+      const relays = superchargers
+        .map((s, idx) => ({
+          idx,
+          s,
+          dToDest: haversineKm(s.lat, s.lon, dest.lat, dest.lon),
+        }))
+        .filter((x) => x.idx !== selectedScIdx && goUsed[x.s.node] <= budgetWh && x.dToDest < curDist * 0.95)
+        .sort((a, b) => a.dToDest - b.dToDest)
+        .slice(0, 2);
+
+      let relayHtml = "";
+      if (relays.length > 0) {
+        relayHtml = `<div class="dest-relay-list">` +
+          relays.map((r) =>
+            `<button class="dest-relay-btn" type="button" data-sc-idx="${r.idx}">经 ${r.s.name} 中转（距终点 ${Math.round(r.dToDest)} km）</button>`
+          ).join("") +
+          `</div>`;
+      }
+
+      resEl.className = "dest-result fail";
+      resEl.innerHTML =
+        `<div class="dest-badge fail">✕ 单次无法直达 ${dest.name}</div>` +
+        `<div class="dest-details">${detailHtml}</div>` +
+        relayHtml;
+
+      resEl.querySelectorAll(".dest-relay-btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          selectedScIdx = Number(btn.dataset.scIdx);
+          updateReachability({ animate: true, pan: true });
+        });
+      });
+    }
+    resEl.classList.remove("hidden");
+  }
+
+  async function searchDestinationQuery(query) {
+    const q = query.trim().toLowerCase();
+    if (!q) return null;
+
+    // 1. Check local curated places (prefer prefix/token match over substring)
+    const tokenMatch = (p) => p.keys.toLowerCase().split(/\s+/).some((t) => t === q || t.startsWith(q));
+    for (const p of JP_PLACES) {
+      if (tokenMatch(p)) return { name: p.name, lat: p.lat, lon: p.lon };
+    }
+    for (const p of JP_PLACES) {
+      if (p.keys.toLowerCase().includes(q) || p.name.toLowerCase().includes(q)) {
+        return { name: p.name, lat: p.lat, lon: p.lon };
+      }
+    }
+    // 2. Check Superchargers
+    for (const s of superchargers) {
+      if (s.name.toLowerCase().includes(q) || s.city.toLowerCase().includes(q)) {
+        return { name: s.name, lat: s.lat, lon: s.lon };
+      }
+    }
+    // 3. Fallback to OpenStreetMap Nominatim Japan search
+    const url = `https://nominatim.openstreetmap.org/search?format=json&countrycodes=jp&limit=1&accept-language=zh-CN,ja,en&q=${encodeURIComponent(query.trim())}`;
+    const resp = await fetch(url);
+    if (!resp.ok) return null;
+    const arr = await resp.json();
+    if (!arr || !arr.length) return null;
+    return {
+      name: arr[0].display_name.split(",")[0],
+      lat: parseFloat(arr[0].lat),
+      lon: parseFloat(arr[0].lon),
+    };
+  }
+
+  // ---------- IndexedDB Cache & Progressive Binary Loader ----------
+  const IDB_NAME = "dokomademap_cn_cache";
+  const IDB_STORE = "files";
+
+  function openIDB() {
+    return new Promise((resolve, reject) => {
+      if (!window.indexedDB) return reject(new Error("no idb"));
+      const req = indexedDB.open(IDB_NAME, 1);
+      req.onupgradeneeded = () => {
+        if (!req.result.objectStoreNames.contains(IDB_STORE)) {
+          req.result.createObjectStore(IDB_STORE);
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  async function idbGet(key) {
+    try {
+      const db = await openIDB();
+      return await new Promise((resolve) => {
+        const tx = db.transaction(IDB_STORE, "readonly");
+        const r = tx.objectStore(IDB_STORE).get(key);
+        r.onsuccess = () => resolve(r.result || null);
+        r.onerror = () => resolve(null);
+      });
+    } catch (_) {
+      return null;
+    }
+  }
+
+  async function idbSet(key, value) {
+    try {
+      const db = await openIDB();
+      const tx = db.transaction(IDB_STORE, "readwrite");
+      tx.objectStore(IDB_STORE).put(value, key);
+    } catch (_) {}
+  }
+
+  async function fetchBinaryCached(url, cacheKey, expectedBytes, onBytes) {
+    const cached = await idbGet(cacheKey);
+    if (cached && cached.byteLength > 100000) {
+      onBytes(expectedBytes);
+      return cached;
+    }
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`无法加载 ${url}`);
+    if (!resp.body || !resp.body.getReader) {
+      const buf = await resp.arrayBuffer();
+      onBytes(buf.byteLength);
+      idbSet(cacheKey, buf);
+      return buf;
+    }
+    const reader = resp.body.getReader();
+    const chunks = [];
+    let received = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      received += value.byteLength;
+      onBytes(received);
+    }
+    const out = new Uint8Array(received);
+    let off = 0;
+    for (const c of chunks) {
+      out.set(c, off);
+      off += c.byteLength;
+    }
+    idbSet(cacheKey, out.buffer);
+    return out.buffer;
+  }
+
   function bindUI() {
     const sWh = document.getElementById("slider-wh");
     const sFull = document.getElementById("slider-full");
@@ -798,8 +1267,21 @@
       const pct = ((el.value - el.min) / (el.max - el.min)) * 100;
       el.style.setProperty("--fill", pct + "%");
     };
+    const presetBtns = document.querySelectorAll(".preset-pill");
+    const syncPresetPills = () => {
+      presetBtns.forEach((b) => {
+        b.classList.toggle(
+          "active",
+          Number(b.dataset.dep) === state.departPct && Number(b.dataset.arr) === state.arrivePct
+        );
+      });
+    };
+
     [sWh, sFull, sDep, sArr].forEach((el) => {
-      el.addEventListener("input", () => [sWh, sFull, sDep, sArr].forEach(paintFill));
+      el.addEventListener("input", () => {
+        paintFill(el);
+        syncPresetPills();
+      });
     });
 
     function syncControlsFromState() {
@@ -817,9 +1299,20 @@
       chkFerChg.checked = state.ferryCharge;
       ferChgRow.classList.toggle("disabled", !state.ferry);
       [sWh, sFull, sDep, sArr].forEach(paintFill);
+      syncPresetPills();
     }
 
     syncControlsFromState();
+
+    presetBtns.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        state.departPct = Number(btn.dataset.dep);
+        state.arrivePct = Number(btn.dataset.arr);
+        syncControlsFromState();
+        saveState();
+        updateReachability();
+      });
+    });
 
     sWh.addEventListener("input", () => {
       state.whPerKm = Number(sWh.value);
@@ -897,6 +1390,102 @@
       updateReachability();
     });
 
+    // Destination search box
+    const destInput = document.getElementById("dest-input");
+    const destSug = document.getElementById("dest-suggestions");
+    const destClear = document.getElementById("btn-dest-clear");
+
+    destInput.addEventListener("input", () => {
+      const q = destInput.value.trim().toLowerCase();
+      if (!q) {
+        destSug.classList.add("hidden");
+        return;
+      }
+      const matches = [];
+      for (const p of JP_PLACES) {
+        if (p.keys.toLowerCase().includes(q) || p.name.toLowerCase().includes(q)) {
+          matches.push({ name: p.name, sub: "热门城市/地标", lat: p.lat, lon: p.lon });
+        }
+        if (matches.length >= 5) break;
+      }
+      for (const s of superchargers) {
+        if (matches.length >= 7) break;
+        if (s.name.toLowerCase().includes(q) || s.city.toLowerCase().includes(q)) {
+          matches.push({ name: s.name, sub: "超级充电站", lat: s.lat, lon: s.lon });
+        }
+      }
+      if (!matches.length) {
+        destSug.classList.add("hidden");
+        return;
+      }
+      destSug.innerHTML = matches
+        .map((m, i) => `<button class="dest-sug-item" type="button" data-i="${i}"><span>${m.name}</span><small>${m.sub}</small></button>`)
+        .join("");
+      destSug.classList.remove("hidden");
+      destSug.querySelectorAll(".dest-sug-item").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const item = matches[Number(btn.dataset.i)];
+          destInput.value = item.name;
+          destSug.classList.add("hidden");
+          selectedDest = { name: item.name, lat: item.lat, lon: item.lon };
+          evaluateDestination(selectedDest);
+        });
+      });
+    });
+
+    document.getElementById("dest-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      destSug.classList.add("hidden");
+      const raw = destInput.value.trim();
+      if (!raw) return;
+      const resEl = document.getElementById("dest-result");
+      resEl.className = "dest-result";
+      resEl.textContent = "正在检索地名并测算路线…";
+      resEl.classList.remove("hidden");
+      try {
+        const found = await searchDestinationQuery(raw);
+        if (!found) {
+          resEl.className = "dest-result fail";
+          resEl.textContent = `未找到“${raw}”，请尝试输入日本城市名或日文地名。`;
+          return;
+        }
+        selectedDest = found;
+        evaluateDestination(selectedDest);
+      } catch (_) {
+        resEl.className = "dest-result fail";
+        resEl.textContent = "地名检索超时，请直接输入热门城市中文名或日文名重试。";
+      }
+    });
+
+    destClear.addEventListener("click", () => {
+      destInput.value = "";
+      selectedDest = null;
+      destSug.classList.add("hidden");
+      evaluateDestination(null);
+    });
+
+    // GPS locate nearest Supercharger
+    document.getElementById("btn-locate").addEventListener("click", () => {
+      if (!navigator.geolocation || !superchargers.length) return;
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          const { latitude, longitude } = pos.coords;
+          let bestIdx = 0;
+          let bestD = Infinity;
+          for (let i = 0; i < superchargers.length; i++) {
+            const d = haversineKm(latitude, longitude, superchargers[i].lat, superchargers[i].lon);
+            if (d < bestD) { bestD = d; bestIdx = i; }
+          }
+          if (map) map.easeTo({ center: [longitude, latitude], zoom: Math.max(map.getZoom(), 8.5), duration: 600 });
+          selectedScIdx = bestIdx;
+          if (dataReadyPromise) await dataReadyPromise;
+          updateReachability({ animate: true, pan: false });
+        },
+        () => {},
+        { enableHighAccuracy: false, timeout: 6000 }
+      );
+    });
+
     const drawer = document.getElementById("drawer");
     const btnDrawer = document.getElementById("btn-toggle-drawer");
     if (window.innerWidth <= 720) {
@@ -955,26 +1544,41 @@
 
     const loadingText = document.getElementById("loading-text");
     const loadingOverlay = document.getElementById("loading-overlay");
+    const progressPill = document.getElementById("data-progress-pill");
+    const progressText = document.getElementById("data-progress-text");
 
     try {
-      const [gBuf, lBuf, scData, ferryData] = await Promise.all([
-        fetch("data/graph.bin").then((r) => {
-          if (!r.ok) throw new Error("无法加载 graph.bin");
-          return r.arrayBuffer();
-        }),
-        fetch("data/landgrid.bin").then((r) => {
-          if (!r.ok) throw new Error("无法加载 landgrid.bin");
-          return r.arrayBuffer();
-        }),
-        fetch("data/superchargers.json").then((r) => r.json()),
-        fetch("data/ferries.json").then((r) => r.json()),
-      ]);
+      // 1. Load lightweight superchargers list (37 KB) & show map immediately
+      const scData = await fetch("data/superchargers.json").then((r) => r.json());
+      superchargers = scData.map((x) => ({
+        ...x,
+        name: x.name.replace(/,\s*Japan\s*-?\s*/, " · ").replace(/\s·\s$/, ""),
+      }));
 
-      loadingText.textContent = "正在初始化路网与地图引擎...";
-      graph = parseGraph(gBuf);
-      grid = parseLandGrid(lBuf);
-      superchargers = scData.map((x) => ({ ...x, name: x.name.replace(/,\s*Japan\s*-?\s*/, " · ").replace(/\s·\s$/, "") }));
-      ferries = ferryData;
+      // 2. Start loading heavy graph + landgrid in background (with IndexedDB cache)
+      const totalExpected = 22656497 + 1321542;
+      let bytesG = 0, bytesL = 0;
+      const updateProg = () => {
+        const pct = Math.min(99, Math.round(((bytesG + bytesL) / totalExpected) * 100));
+        progressText.textContent = `路网准备中 ${pct}%`;
+      };
+      progressPill.classList.remove("hidden");
+
+      dataReadyPromise = Promise.all([
+        fetchBinaryCached("data/graph.bin", "graph_v2", 22656497, (b) => { bytesG = b; updateProg(); }),
+        fetchBinaryCached("data/landgrid.bin", "landgrid_v2", 1321542, (b) => { bytesL = b; updateProg(); }),
+        fetch("data/ferries.json").then((r) => r.json()),
+      ]).then(([gBuf, lBuf, ferryData]) => {
+        graph = parseGraph(gBuf);
+        grid = parseLandGrid(lBuf);
+        ferries = ferryData;
+        progressPill.classList.add("hidden");
+        ensureReachOverlaySource();
+        if (selectedScIdx >= 0) updateReachability({ animate: true, pan: false });
+      }).catch((err) => {
+        progressText.textContent = "路网加载失败";
+        console.error(err);
+      });
 
       map = new maplibregl.Map({
         container: "map",
@@ -1005,7 +1609,7 @@
       });
     } catch (err) {
       console.error(err);
-      loadingText.textContent = `加载失败：${err.message}（请确认已先运行数据构建脚本并通过本地 HTTP 服务打开）`;
+      loadingText.textContent = `加载失败：${err.message}`;
     }
   }
 

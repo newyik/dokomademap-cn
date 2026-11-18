@@ -4,11 +4,12 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <meta name="theme-color" content="#0a0c10" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>超充可达 · Model 3 日本</title>
+  <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23e31937'/><path d='M17.5 5l-8 12h5.5l-1.5 10 9-13h-5.5z' fill='%23fff'/></svg>" />
   <link rel="preconnect" href="https://tiles.openfreemap.org" crossorigin />
-  <link rel="preload" href="data/graph.bin" as="fetch" crossorigin />
-  <link rel="preload" href="data/landgrid.bin" as="fetch" crossorigin />
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
   <link rel="stylesheet" href="style.css" />
 </head>
@@ -27,7 +28,16 @@
         <span class="brand-sub">MODEL 3 · DUAL MOTOR · JAPAN</span>
       </div>
     </div>
+
+    <div id="data-progress-pill" class="progress-pill hidden">
+      <span class="progress-dot"></span>
+      <span id="data-progress-text">正在准备路网…</span>
+    </div>
+
     <div class="topbar-actions">
+      <button id="btn-locate" class="icon-btn" type="button" title="定位并查找附近超充站" aria-label="定位附近超充">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" fill="currentColor"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
+      </button>
       <button id="btn-info" class="icon-btn" type="button" title="关于本页" aria-label="关于本页">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 11v6M12 7.5v.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
       </button>
@@ -44,7 +54,7 @@
       <div class="pulse-dot" aria-hidden="true"></div>
       <div>
         <div class="status-hint-title">选择一个超级充电站</div>
-        <div class="status-hint-sub">点击地图上的红点，计算满足当前电量的单次可达范围</div>
+        <div class="status-hint-sub">点击地图上的红点，查看单次可达范围并测算任意终点</div>
       </div>
     </div>
 
@@ -84,6 +94,17 @@
         </div>
       </div>
 
+      <!-- Destination Search -->
+      <div class="dest-box">
+        <form id="dest-form" class="dest-input-row" autocomplete="off">
+          <input id="dest-input" type="text" placeholder="输入终点城市/地名（如：京都、箱根、成田）" />
+          <button id="btn-dest-clear" class="dest-clear hidden" type="button" title="清除终点">✕</button>
+          <button id="btn-dest-search" class="dest-go" type="submit">测算</button>
+        </form>
+        <div id="dest-suggestions" class="dest-suggestions hidden"></div>
+        <div id="dest-result" class="dest-result hidden"></div>
+      </div>
+
       <div class="legend">
         <span>充裕</span>
         <div class="legend-bar"></div>
@@ -120,6 +141,12 @@
     <div class="section-title">
       <span>能耗与电量</span>
       <button id="btn-reset-defaults" class="text-btn" type="button">恢复默认</button>
+    </div>
+
+    <div class="preset-pills" aria-label="快捷电量方案">
+      <button class="preset-pill" type="button" data-dep="80" data-arr="10">日常 80→10%</button>
+      <button class="preset-pill" type="button" data-dep="100" data-arr="10">满电 100→10%</button>
+      <button class="preset-pill" type="button" data-dep="80" data-arr="20">留余 80→20%</button>
     </div>
 
     <div class="control-group">
@@ -179,11 +206,11 @@
     </div>
   </aside>
 
-  <!-- Loading -->
+  <!-- Initial light map loading (dismisses immediately once map & pins load) -->
   <div id="loading-overlay" class="loading-overlay">
     <div class="loading-box">
       <div class="loader-ring"><svg viewBox="0 0 24 24"><path d="M13.5 2 5 14h6l-1.5 8L19 9.5h-6z" fill="currentColor"/></svg></div>
-      <div id="loading-text">正在加载日本路网与超充数据…</div>
+      <div id="loading-text">正在打开日本超充地图…</div>
     </div>
   </div>
 
@@ -197,14 +224,14 @@
         </button>
       </div>
       <div class="modal-body">
-        <p>为 <b>Tesla Model 3 双电机长续航</b> 定制的日本超充单次可达范围地图。点击任意超充站，地图会按到达时的剩余电量着色：<span class="txt-green">绿色</span> 充裕，<span class="txt-yellow">黄色</span> 中等，<span class="txt-red">红色</span> 接近保留电量极限，未着色区域无法到达。</p>
+        <p>为 <b>Tesla Model 3 双电机长续航</b> 定制的日本超充单次可达范围地图。点击任意超充站后，可查看覆盖范围，也可直接输入终点城市或地名测算能否直达及沿途推荐中转站。</p>
         <div class="info-grid">
           <div class="info-item"><b>路网</b><span>OpenStreetMap 高速 / 国道 / 离岛干道，按最短时间路线累计能耗</span></div>
           <div class="info-item"><b>海拔</b><span>国土地理院 DEM：上坡加耗、下坡回收</span></div>
           <div class="info-item"><b>轮渡</b><span>航行中不耗电；绿色航线可船上约 3 kW 补电</span></div>
-          <div class="info-item"><b>超充</b><span>supercharge.info 公开站点数据</span></div>
+          <div class="info-item"><b>离线缓存</b><span>首次加载后自动缓存至本地，户外弱网秒开</span></div>
         </div>
-        <p class="modal-foot">底图 © OpenFreeMap / OpenMapTiles / OpenStreetMap 贡献者。结果为估算，请以车机导航为准。</p>
+        <p class="modal-foot">底图 © OpenFreeMap / OpenMapTiles / OpenStreetMap 贡献者；地名检索支持 Nominatim。结果为估算，请以车机导航为准。</p>
       </div>
     </div>
   </div>

@@ -1,0 +1,17 @@
+{
+  "name": "超充可达 · Model 3 日本",
+  "short_name": "超充可达",
+  "description": "Tesla Model 3 双电机长续航 日本超充可达范围与目的地测算地图",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#0a0c10",
+  "theme_color": "#0a0c10",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect width='192' height='192' rx='44' fill='%23e31937'/><path d='M105 28L56 102h34l-9 62 55-80h-34z' fill='%23fff'/></svg>",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

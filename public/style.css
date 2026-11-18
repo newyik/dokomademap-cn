@@ -622,6 +622,175 @@ body:not(.theme-light) .maplibregl-ctrl-attrib-button { filter: invert(1); }
   .info-grid { grid-template-columns: 1fr; }
 }
 
+/* ---------- Progress pill, Destination Search & Presets ---------- */
+.progress-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 11px;
+  border-radius: 99px;
+  background: var(--sub-2);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.progress-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--blue);
+  animation: ping 1.2s ease infinite;
+}
+
+.preset-pills {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.preset-pill {
+  border: 1px solid var(--glass-border);
+  background: var(--sub);
+  color: var(--text-2);
+  border-radius: 9px;
+  padding: 6px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.18s, color 0.18s, border-color 0.18s;
+}
+.preset-pill:hover { background: var(--sub-2); color: var(--text); }
+.preset-pill.active {
+  background: rgba(62, 139, 255, 0.18);
+  border-color: rgba(62, 139, 255, 0.5);
+  color: var(--text);
+}
+
+.dest-box {
+  position: relative;
+  margin: 10px 0 12px;
+}
+.dest-input-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--sub);
+  border: 1px solid var(--glass-border);
+  border-radius: 11px;
+  padding: 3px 4px 3px 10px;
+}
+.dest-input-row:focus-within {
+  border-color: rgba(62, 139, 255, 0.6);
+}
+#dest-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: calc(12.5px * var(--font-scale));
+  outline: none;
+}
+#dest-input::placeholder { color: var(--text-3); }
+.dest-clear {
+  border: none;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  padding: 2px 5px;
+  font-size: 12px;
+}
+.dest-go {
+  border: none;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--blue);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.dest-go:hover { filter: brightness(1.08); }
+
+.dest-suggestions {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 30;
+  max-height: 185px;
+  overflow-y: auto;
+  border-radius: 11px;
+  background: var(--glass-solid);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow);
+}
+.dest-sug-item {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  padding: 8px 11px;
+  font-size: 12px;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.dest-sug-item:hover { background: var(--sub-2); }
+.dest-sug-item small { color: var(--text-3); font-size: 11px; }
+
+.dest-result {
+  margin-top: 8px;
+  padding: 9px 11px;
+  border-radius: 11px;
+  font-size: calc(12px * var(--font-scale));
+  line-height: 1.5;
+  border: 1px solid var(--glass-border);
+  background: var(--sub);
+}
+.dest-result.ok {
+  border-color: rgba(34, 197, 94, 0.4);
+  background: rgba(34, 197, 94, 0.1);
+}
+.dest-result.fail {
+  border-color: rgba(239, 68, 68, 0.45);
+  background: rgba(239, 68, 68, 0.1);
+}
+.dest-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 700;
+  font-size: calc(13px * var(--font-scale));
+}
+.dest-badge.ok { color: var(--green); }
+.dest-badge.fail { color: #f87171; }
+.dest-details {
+  margin-top: 4px;
+  color: var(--text-2);
+  font-size: 11.5px;
+}
+.dest-relay-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 6px;
+}
+.dest-relay-btn {
+  border: 1px solid rgba(62, 139, 255, 0.45);
+  background: rgba(62, 139, 255, 0.14);
+  color: var(--text);
+  border-radius: 7px;
+  padding: 3px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.dest-relay-btn:hover { background: rgba(62, 139, 255, 0.28); }
+
 /* ---------- Layout fixes: controls bottom-left, compact drawer ---------- */
 .maplibregl-ctrl-bottom-left { left: 8px; bottom: 8px; }
 .car-silhouette { height: 34px; }
