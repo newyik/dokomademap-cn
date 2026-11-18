@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#0a0c10" />
+  <title>超充可达 · Model 3 日本</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23e31937'/><path d='M17.5 5l-8 12h5.5l-1.5 10 9-13h-5.5z' fill='%23fff'/></svg>" />
+  <link rel="preconnect" href="https://tiles.openfreemap.org" crossorigin />
+  <link rel="preload" href="data/graph.bin" as="fetch" crossorigin />
+  <link rel="preload" href="data/landgrid.bin" as="fetch" crossorigin />
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="map"></div>
+  <div class="vignette" aria-hidden="true"></div>
+
+  <!-- Top Bar -->
+  <header class="topbar glass">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M13.5 2 5 14h6l-1.5 8L19 9.5h-6z" fill="currentColor"/></svg>
+      </div>
+      <div class="brand-text">
+        <h1>超充可达</h1>
+        <span class="brand-sub">MODEL 3 · DUAL MOTOR · JAPAN</span>
+      </div>
+    </div>
+    <div class="topbar-actions">
+      <button id="btn-info" class="icon-btn" type="button" title="关于本页" aria-label="关于本页">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 11v6M12 7.5v.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+      <button id="btn-toggle-drawer" class="pill-btn" type="button" aria-expanded="true">
+        <svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="16" cy="7" r="2" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="10" cy="17" r="2" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
+        <span>参数</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Status Card -->
+  <aside id="status-card" class="status-card glass">
+    <div id="status-empty" class="status-empty">
+      <div class="pulse-dot" aria-hidden="true"></div>
+      <div>
+        <div class="status-hint-title">选择一个超级充电站</div>
+        <div class="status-hint-sub">点击地图上的红点，计算满足当前电量的单次可达范围</div>
+      </div>
+    </div>
+
+    <div id="status-active" class="status-active hidden">
+      <div class="status-header">
+        <div class="sc-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M13.5 2 5 14h6l-1.5 8L19 9.5h-6z" fill="currentColor"/></svg>
+        </div>
+        <div class="sc-titles">
+          <div id="sc-name" class="sc-name">—</div>
+          <div id="sc-meta" class="sc-meta">—</div>
+        </div>
+        <button id="btn-clear-sc" class="icon-btn sm" type="button" title="清除起点" aria-label="清除起点">
+          <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+
+      <div class="hero-metric">
+        <div>
+          <span class="hero-label">平路理论续航</span>
+          <span id="metric-range" class="hero-value">—</span>
+        </div>
+        <div id="soc-gauge" class="soc-gauge" aria-hidden="true">
+          <div class="soc-track"><div class="soc-fill"></div></div>
+          <span id="soc-label" class="soc-label">80% → 10%</span>
+        </div>
+      </div>
+
+      <div class="status-metrics">
+        <div class="metric">
+          <span class="metric-label">可用电量</span>
+          <span id="metric-kwh" class="metric-value">—</span>
+        </div>
+        <div class="metric">
+          <span class="metric-label">可直达超充</span>
+          <span id="metric-sc-count" class="metric-value">—</span>
+        </div>
+      </div>
+
+      <div class="legend">
+        <span>充裕</span>
+        <div class="legend-bar"></div>
+        <span>极限</span>
+      </div>
+      <div id="ferry-legend" class="ferry-legend">
+        <span><i class="line-ev"></i>船上可充电</span>
+        <span><i class="line-std"></i>普通汽车轮渡</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Settings Drawer -->
+  <aside id="drawer" class="drawer glass">
+    <div class="car-card">
+      <div class="car-card-top">
+        <div>
+          <div class="car-name">Model 3 双电机长续航</div>
+          <div class="car-vin">Dual Motor · 2026 AWD</div>
+        </div>
+        <span class="lock-badge">
+          <svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2" fill="currentColor"/><path d="M8 11V8a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+          已锁定
+        </span>
+      </div>
+      <svg class="car-silhouette" viewBox="0 0 240 60" aria-hidden="true">
+        <path d="M10 44c0-6 4-9 12-10l34-4c12-9 26-15 52-16 26 0 44 5 62 14l34 5c10 2 16 6 16 11v4H10z" fill="currentColor" opacity=".18"/>
+        <path d="M70 29c12-8 24-12 44-12 18 0 32 4 46 11z" fill="currentColor" opacity=".28"/>
+        <circle cx="62" cy="48" r="9" fill="#0a0c10" stroke="currentColor" stroke-opacity=".5" stroke-width="3"/>
+        <circle cx="184" cy="48" r="9" fill="#0a0c10" stroke="currentColor" stroke-opacity=".5" stroke-width="3"/>
+      </svg>
+    </div>
+
+    <div class="section-title">
+      <span>能耗与电量</span>
+      <button id="btn-reset-defaults" class="text-btn" type="button">恢复默认</button>
+    </div>
+
+    <div class="control-group">
+      <div class="control-label-row"><label for="slider-wh">表显电耗</label><span id="val-wh" class="control-value">160 Wh/km</span></div>
+      <input id="slider-wh" type="range" min="120" max="240" step="5" value="160" />
+    </div>
+    <div class="control-group">
+      <div class="control-label-row"><label for="slider-full">满电表显续航</label><span id="val-full" class="control-value">600 km</span></div>
+      <input id="slider-full" type="range" min="450" max="680" step="10" value="600" />
+    </div>
+    <div class="control-group">
+      <div class="control-label-row"><label for="slider-depart">出发电量</label><span id="val-depart" class="control-value">80%</span></div>
+      <input id="slider-depart" type="range" min="20" max="100" step="5" value="80" />
+    </div>
+    <div class="control-group">
+      <div class="control-label-row"><label for="slider-arrive">到达保留</label><span id="val-arrive" class="control-value">10%</span></div>
+      <input id="slider-arrive" type="range" min="0" max="40" step="5" value="10" />
+    </div>
+
+    <div class="section-title"><span>行程条件</span></div>
+    <div class="toggles-group">
+      <label class="switch-row">
+        <span class="switch-text"><b>往返行程</b><small>去程与回程都要够电</small></span>
+        <input id="chk-roundtrip" type="checkbox" /><span class="switch" aria-hidden="true"></span>
+      </label>
+      <label class="switch-row">
+        <span class="switch-text"><b>冬季模式</b><small>能耗 +28%</small></span>
+        <input id="chk-winter" type="checkbox" /><span class="switch" aria-hidden="true"></span>
+      </label>
+      <label class="switch-row">
+        <span class="switch-text"><b>汽车轮渡</b><small>计算跨海航线</small></span>
+        <input id="chk-ferry" type="checkbox" checked /><span class="switch" aria-hidden="true"></span>
+      </label>
+      <label id="ferry-charge-row" class="switch-row indent">
+        <span class="switch-text"><b>船上补电</b><small>支持航线按约 3 kW 计算</small></span>
+        <input id="chk-ferry-charge" type="checkbox" checked /><span class="switch" aria-hidden="true"></span>
+      </label>
+    </div>
+
+    <div class="section-title"><span>显示</span></div>
+    <div class="appearance-group">
+      <div class="appearance-row">
+        <span>字号</span>
+        <div class="segmented">
+          <button id="btn-font-dec" type="button">A−</button>
+          <button id="btn-font-inc" type="button">A＋</button>
+        </div>
+      </div>
+      <div class="appearance-row">
+        <span>配色</span>
+        <div class="segmented">
+          <button id="btn-theme-auto" type="button" class="active">自动</button>
+          <button id="btn-theme-dark" type="button">深色</button>
+          <button id="btn-theme-light" type="button">浅色</button>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Loading -->
+  <div id="loading-overlay" class="loading-overlay">
+    <div class="loading-box">
+      <div class="loader-ring"><svg viewBox="0 0 24 24"><path d="M13.5 2 5 14h6l-1.5 8L19 9.5h-6z" fill="currentColor"/></svg></div>
+      <div id="loading-text">正在加载日本路网与超充数据…</div>
+    </div>
+  </div>
+
+  <!-- Info Modal -->
+  <div id="info-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal-card glass">
+      <div class="modal-header">
+        <h2 id="modal-title">关于超充可达</h2>
+        <button id="btn-close-modal" class="icon-btn sm" type="button" aria-label="关闭">
+          <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <p>为 <b>Tesla Model 3 双电机长续航</b> 定制的日本超充单次可达范围地图。点击任意超充站，地图会按到达时的剩余电量着色：<span class="txt-green">绿色</span> 充裕，<span class="txt-yellow">黄色</span> 中等，<span class="txt-red">红色</span> 接近保留电量极限，未着色区域无法到达。</p>
+        <div class="info-grid">
+          <div class="info-item"><b>路网</b><span>OpenStreetMap 高速 / 国道 / 离岛干道，按最短时间路线累计能耗</span></div>
+          <div class="info-item"><b>海拔</b><span>国土地理院 DEM：上坡加耗、下坡回收</span></div>
+          <div class="info-item"><b>轮渡</b><span>航行中不耗电；绿色航线可船上约 3 kW 补电</span></div>
+          <div class="info-item"><b>超充</b><span>supercharge.info 公开站点数据</span></div>
+        </div>
+        <p class="modal-foot">底图 © OpenFreeMap / OpenMapTiles / OpenStreetMap 贡献者。结果为估算，请以车机导航为准。</p>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
