@@ -701,7 +701,7 @@
       const flatKm = carBudgetWh > 0 ? (carBudgetWh / (state.whPerKm * winterMult)) / (state.roundTrip ? 2.0 : 1.0) : 0;
       document.getElementById("metric-range").textContent = `${Math.round(flatKm)} km`;
       const carPill = document.getElementById("btn-car-pill");
-      if (carPill) carPill.innerHTML = `<span class="car-pill-dot"></span>我的车 <b>${carState.soc}%</b> · 还能开 <b>${Math.round(flatKm)} km</b>`;
+      if (carPill) carPill.innerHTML = `<span class="car-pill-dot"></span>我的车 <b>${carState.soc}%</b> · 约 <b>${Math.round(flatKm)} km</b>`;
       document.getElementById("metric-sc-count").textContent = `${reachableScCount} 座`;
       const gauge = document.getElementById("soc-gauge");
       if (gauge) {
