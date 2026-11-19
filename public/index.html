@@ -11,7 +11,7 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23e31937'/><path d='M17.5 5l-8 12h5.5l-1.5 10 9-13h-5.5z' fill='%23fff'/></svg>" />
   <link rel="preconnect" href="https://tiles.openfreemap.org" crossorigin />
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
-  <link rel="stylesheet" href="style.css?v=20261119ui3" />
+  <link rel="stylesheet" href="style.css?v=20261119ui4" />
 </head>
 <body>
   <div id="map"></div>
@@ -40,7 +40,7 @@
     </div>
 
     <div class="topbar-actions">
-      <button id="btn-my-car" class="pill-btn ghost purple-on" type="button" aria-pressed="false" title="同步车辆电量，显示紫色可达范围"><svg viewBox="0 0 24 24"><path d="M5 16V11.5l1.8-4.2A2 2 0 0 1 8.6 6h6.8a2 2 0 0 1 1.8 1.3l1.8 4.2V16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><rect x="3.5" y="11" width="17" height="6" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="7.5" cy="14" r="1" fill="currentColor"/><circle cx="16.5" cy="14" r="1" fill="currentColor"/><path d="M6 17v2M18 17v2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><span>我的车</span></button>
+      <button id="btn-my-car" class="pill-btn ghost purple-on" type="button" aria-pressed="false" title="显示我的车的紫色可达范围，再点一下关闭"><svg viewBox="0 0 24 24"><path d="M5 16V11.5l1.8-4.2A2 2 0 0 1 8.6 6h6.8a2 2 0 0 1 1.8 1.3l1.8 4.2V16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><rect x="3.5" y="11" width="17" height="6" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="7.5" cy="14" r="1" fill="currentColor"/><circle cx="16.5" cy="14" r="1" fill="currentColor"/><path d="M6 17v2M18 17v2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><span>我的车</span></button>
       <button id="btn-toggle-nacs" class="pill-btn ghost" type="button" aria-pressed="false" title="显示/隐藏免转接的第三方 NACS 充电桩"><svg viewBox="0 0 24 24"><path d="M9 3v4M15 3v4M6 7h12v4a6 6 0 0 1-12 0zM12 17v4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>第三方桩</span></button>
       <button id="btn-locate" class="icon-btn" type="button" title="定位并查找附近超充站" aria-label="定位附近超充">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" fill="currentColor"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
@@ -466,6 +466,6 @@
   </div>
 
   <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
-  <script src="app.js?v=20261119ui3"></script>
+  <script src="app.js?v=20261119ui4"></script>
 </body>
 </html>

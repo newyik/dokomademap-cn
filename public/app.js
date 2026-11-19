@@ -2544,6 +2544,17 @@
     btnMyCar.addEventListener("click", async () => {
       let savedNas = {};
       try { savedNas = JSON.parse(localStorage.getItem("dokomademap_nas_v1") || "{}"); } catch (_) {}
+      // 已经在显示我的车 → 再点一下就退出（保留车辆数据，下次点开秒出）
+      if (carState.active && btnMyCar.getAttribute("aria-pressed") === "true") {
+        cardMinimized = false;
+        carState.active = false;
+        setCarPillVisible(false);
+        const sc = document.getElementById("status-card");
+        sc.classList.remove("hidden", "peek");
+        btnMyCar.setAttribute("aria-pressed", "false");
+        updateReachability();
+        return;
+      }
       if (carState.node >= 0) {
         carState.active = true;
         cardMinimized = false;
