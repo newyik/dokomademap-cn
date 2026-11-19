@@ -30,6 +30,8 @@
 
   const state = loadState();
   let map = null;
+  // 用户自己点了定位后，后台同步车辆数据时不要再把画面抢回到车上
+  let userTookOver = false;
   let graph = null;
   let grid = null;
   let superchargers = [];
@@ -2767,6 +2769,15 @@
         async (pos) => {
           btnLocate.classList.remove("busy");
           const { latitude, longitude } = pos.coords;
+          userTookOver = true;
+          // 定位以我的位置为准：退出「我的车」显示（车辆数据保留，点「我的车」可再打开）
+          if (carState.active) {
+            carState.active = false;
+            cardMinimized = false;
+            document.getElementById("btn-my-car").setAttribute("aria-pressed", "false");
+            document.getElementById("car-pill-bar")?.classList.add("hidden");
+            document.getElementById("status-card").classList.remove("hidden");
+          }
           // 地图上标出我的位置
           if (map) {
             if (!meMarker) {
@@ -2985,6 +2996,15 @@
                       if (d.wh_per_km) state.whPerKm = Math.max(120, Math.min(240, Math.round(d.wh_per_km / 5) * 5));
                       state.departPct = Math.max(5, Math.min(100, Math.round(d.soc)));
                       const updatedAt = d.updated_at || "NAS";
+                      if (userTookOver) {
+                        // 用户已经在看自己的位置：只悄悄更新车辆数据，不切换画面
+                        carState = { active: false, lat: d.lat, lon: d.lon, node: snap.node, soc: state.departPct, updatedAt };
+                        try {
+                          savedNas.lastCar = { lat: d.lat, lon: d.lon, soc: state.departPct, full_range_km: d.full_range_km, wh_per_km: d.wh_per_km, updatedAt };
+                          localStorage.setItem("dokomademap_nas_v1", JSON.stringify(savedNas));
+                        } catch (_) {}
+                        return;
+                      }
                       selectedScIdx = -1;
                       selectedNacsIdx = -1;
                       carState = { active: true, lat: d.lat, lon: d.lon, node: snap.node, soc: state.departPct, updatedAt };
