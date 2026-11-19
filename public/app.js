@@ -1003,10 +1003,10 @@
             "interpolate",
             ["linear"],
             ["zoom"],
-            4, 3.0,
-            7, 4.4,
-            10, 5.8,
-            13, 7.2,
+            4, 4.0,
+            7, 5.4,
+            10, 6.8,
+            13, 8.2,
           ],
           "circle-color": [
             "match",
@@ -1836,8 +1836,21 @@
     document.getElementById("btn-toggle-drawer").classList.toggle("hidden", isCamp);
 
     if (map && map.getLayer("sc-circles")) {
-      map.setPaintProperty("sc-circles", "circle-opacity", isCamp ? 0.35 : 1.0);
-      map.setPaintProperty("sc-circles", "circle-stroke-opacity", isCamp ? 0.4 : 1.0);
+      map.setPaintProperty("sc-circles", "circle-opacity", isCamp ? 0.15 : 1.0);
+      map.setPaintProperty("sc-circles", "circle-stroke-opacity", isCamp ? 0.15 : 1.0);
+    }
+    if (map && map.getLayer("sc-selected-halo")) {
+      map.setLayoutProperty("sc-selected-halo", "visibility", isCamp ? "none" : "visible");
+    }
+    if (map && map.getLayer("reach-overlay-layer")) {
+      const hasCov = selectedScIdx >= 0 || selectedNacsIdx >= 0 || carState.active;
+      map.setLayoutProperty("reach-overlay-layer", "visibility", !isCamp && hasCov ? "visible" : "none");
+    }
+    if (map && map.getLayer("ferry-routes-std")) {
+      map.setLayoutProperty("ferry-routes-std", "visibility", isCamp ? "none" : "visible");
+    }
+    if (map && map.getLayer("ferry-routes-ev")) {
+      map.setLayoutProperty("ferry-routes-ev", "visibility", isCamp ? "none" : "visible");
     }
     if (map && map.getLayer("nacs-circles")) {
       map.setPaintProperty("nacs-circles", "circle-opacity", isCamp ? 0.2 : 1.0);
@@ -2629,7 +2642,33 @@
             }
           }
         }
-        if (selectedScIdx >= 0 || carState.active) updateReachability({ animate: true, pan: carState.active });
+        if (selectedScIdx >= 0 || carState.active) {
+          updateReachability({ animate: true, pan: carState.active });
+        } else {
+          // Auto-sync saved NAS car connection on subsequent visits (no need to re-type or re-click)
+          try {
+            const savedNas = JSON.parse(localStorage.getItem("dokomademap_nas_v1") || "{}");
+            if (savedNas.url && savedNas.url.startsWith("http")) {
+              const headers = savedNas.token ? { Authorization: `Bearer ${savedNas.token}` } : {};
+              fetch(savedNas.url, { headers })
+                .then((r) => (r.ok ? r.json() : null))
+                .then((d) => {
+                  if (d && typeof d.soc === "number" && typeof d.lat === "number" && typeof d.lon === "number") {
+                    const snap = findNearestNode(d.lat, d.lon, Infinity);
+                    if (snap.node >= 0) {
+                      if (d.full_range_km) state.fullRangeKm = Math.max(450, Math.min(680, Math.round(d.full_range_km / 10) * 10));
+                      if (d.wh_per_km) state.whPerKm = Math.max(120, Math.min(240, Math.round(d.wh_per_km / 5) * 5));
+                      state.departPct = Math.max(5, Math.min(100, Math.round(d.soc)));
+                      carState = { active: true, lat: d.lat, lon: d.lon, node: snap.node, soc: state.departPct, updatedAt: d.updated_at || "NAS" };
+                      document.getElementById("btn-my-car").setAttribute("aria-pressed", "true");
+                      updateReachability({ animate: true, pan: true });
+                    }
+                  }
+                })
+                .catch(() => {});
+            }
+          } catch (_) {}
+        }
       }).catch((err) => {
         progressText.textContent = "路网加载失败";
         console.error(err);
