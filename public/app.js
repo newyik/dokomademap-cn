@@ -10,7 +10,7 @@
     winter: false,
     ferry: true,
     ferryCharge: true,
-    showCamp: true,
+    showNacs: true,
     fontScale: 1,
     theme: "auto", // auto | dark | light
   };
@@ -33,9 +33,11 @@
   let graph = null;
   let grid = null;
   let superchargers = [];
+  let nacsChargers = [];
   let ferries = [];
   let campSpots = [];
   let selectedScIdx = -1;
+  let selectedNacsIdx = -1;
   let selectedCampIdx = -1;
   let campTempC = 8;
   let campHours = 8;
@@ -427,6 +429,17 @@
     });
   }
 
+  function getSelectedOrigin() {
+    if (selectedScIdx >= 0 && superchargers[selectedScIdx]) {
+      return { type: "sc", ...superchargers[selectedScIdx] };
+    }
+    if (selectedNacsIdx >= 0 && nacsChargers[selectedNacsIdx]) {
+      const n = nacsChargers[selectedNacsIdx];
+      return { type: "nacs", ...n, state: n.pref, city: "免转接 NACS" };
+    }
+    return null;
+  }
+
   function updateReachability(opts = {}) {
     if (!graph || !grid || !map) return;
     const { animate = false, pan = false } = opts;
@@ -439,8 +452,9 @@
     const emptyEl = document.getElementById("status-empty");
     const activeEl = document.getElementById("status-active");
     const ferryLegendEl = document.getElementById("ferry-legend");
+    const sc = getSelectedOrigin();
 
-    if (selectedScIdx < 0) {
+    if (!sc) {
       if (selectedCampIdx < 0) emptyEl.classList.remove("hidden");
       else emptyEl.classList.add("hidden");
       activeEl.classList.add("hidden");
@@ -451,6 +465,7 @@
       if (src) src.pause();
       updateFerryLayer(null, Infinity);
       updateSuperchargerLayer(null, Infinity);
+      updateNacsLayer(null, Infinity);
       updateDestRouteLayer(null, null);
       if (selectedCampIdx >= 0) updateCampCalc();
       return;
@@ -465,7 +480,6 @@
       map.setLayoutProperty("reach-overlay-layer", "visibility", "visible");
     }
 
-    const sc = superchargers[selectedScIdx];
     const params = computeEnergyParams();
     const { budgetWh, winterMult } = params;
 
@@ -517,18 +531,22 @@
       refreshCanvasOverlayOnce();
     }
 
-    // 3. Update Ferry & Supercharger layers and status metrics
+    // 3. Update Ferry, Supercharger & NACS layers and status metrics
     updateFerryLayer(goUsed, budgetWh);
     const reachableScCount = updateSuperchargerLayer(goUsed, budgetWh);
+    const reachableNacsCount = updateNacsLayer(goUsed, budgetWh);
 
     document.getElementById("sc-name").textContent = sc.name;
     const locParts = [sc.state, sc.city].filter(Boolean).join(" · ");
     document.getElementById("sc-meta").textContent =
-      `${locParts ? locParts + " · " : ""}${sc.stalls || "?"} 桩 · ${sc.kw || "?"} kW`;
+      sc.type === "nacs"
+        ? `${sc.brand} · ${sc.kw || "?"} kW · ${sc.hours || "免转接"}`
+        : `${locParts ? locParts + " · " : ""}${sc.stalls || "?"} 桩 · ${sc.kw || "?"} kW`;
     document.getElementById("metric-kwh").textContent = `${(budgetWh / 1000.0).toFixed(1)} kWh`;
     const flatKm = budgetWh > 0 ? (budgetWh / (state.whPerKm * winterMult)) / (state.roundTrip ? 2.0 : 1.0) : 0;
     document.getElementById("metric-range").textContent = `${Math.round(flatKm)} km`;
-    document.getElementById("metric-sc-count").textContent = `${reachableScCount} 座`;
+    document.getElementById("metric-sc-count").textContent =
+      state.showNacs ? `${reachableScCount} 超充 + ${reachableNacsCount} NACS` : `${reachableScCount} 座`;
     const gauge = document.getElementById("soc-gauge");
     if (gauge) {
       gauge.style.setProperty("--soc-from", state.arrivePct + "%");
@@ -610,6 +628,48 @@
       };
     });
 
+    src.setData({ type: "FeatureCollection", features });
+    return reachableCount;
+  }
+
+  function updateNacsLayer(usedArr, budgetWh) {
+    if (!map) return 0;
+    const src = map.getSource("nacs-chargers");
+    if (!src) return 0;
+    if (!state.showNacs || !nacsChargers.length) {
+      src.setData({ type: "FeatureCollection", features: [] });
+      return 0;
+    }
+
+    let reachableCount = 0;
+    const { usableFullWh } = computeEnergyParams();
+    const features = nacsChargers.map((n, idx) => {
+      let status = 0;
+      let arrivalPct = -1;
+      if (idx === selectedNacsIdx) {
+        status = 2;
+      } else if (usedArr && usedArr[n.node] <= budgetWh) {
+        status = 1;
+        reachableCount++;
+        if (usableFullWh > 0) {
+          const remTotalWh = usableFullWh * (state.departPct / 100.0) - usedArr[n.node];
+          arrivalPct = Math.max(0, Math.min(100, Math.round((remTotalWh / usableFullWh) * 100)));
+        }
+      }
+      return {
+        type: "Feature",
+        geometry: { type: "Point", coordinates: [n.lon, n.lat] },
+        properties: {
+          idx,
+          name: n.name,
+          brand: n.brand,
+          kw: n.kw,
+          hours: n.hours,
+          status,
+          arrivalPct,
+        },
+      };
+    });
     src.setData({ type: "FeatureCollection", features });
     return reachableCount;
   }
@@ -840,7 +900,52 @@
       "sc-selected-halo"
     );
 
+    // 3rd-party adapter-free NACS chargers (e.g. FLASH)
+    map.addSource("nacs-chargers", {
+      type: "geojson",
+      data: { type: "FeatureCollection", features: [] },
+    });
+    map.addLayer(
+      {
+        id: "nacs-circles",
+        type: "circle",
+        source: "nacs-chargers",
+        paint: {
+          "circle-radius": [
+            "interpolate",
+            ["linear"],
+            ["zoom"],
+            4, ["case", ["==", ["get", "status"], 2], 7.5, 3.6],
+            8, ["case", ["==", ["get", "status"], 2], 9.5, 5.5],
+            12, ["case", ["==", ["get", "status"], 2], 11, 7.5],
+          ],
+          "circle-color": [
+            "case",
+            ["==", ["get", "status"], 2], "#ffffff",
+            "#38bdf8",
+          ],
+          "circle-stroke-width": ["case", ["==", ["get", "status"], 2], 3, 1.3],
+          "circle-stroke-color": [
+            "case",
+            ["==", ["get", "status"], 2], "#38bdf8",
+            "rgba(255,255,255,0.8)",
+          ],
+        },
+      },
+      "sc-selected-halo"
+    );
+    map.addLayer(
+      {
+        id: "nacs-hit",
+        type: "circle",
+        source: "nacs-chargers",
+        paint: { "circle-radius": 12, "circle-opacity": 0 },
+      },
+      "sc-selected-halo"
+    );
+
     updateCampLayer();
+    updateNacsLayer(null, Infinity);
     updateSuperchargerLayer(null, Infinity);
     if (graph && grid) updateReachability();
   }
@@ -873,6 +978,29 @@
     map.on("click", "sc-hit", async (e) => {
       const f = e.features[0];
       selectedScIdx = f.properties.idx;
+      selectedNacsIdx = -1;
+      if (dataReadyPromise) await dataReadyPromise;
+      updateReachability({ animate: true, pan: true });
+    });
+
+    map.on("mouseenter", "nacs-hit", (e) => {
+      if (map.queryRenderedFeatures(e.point, { layers: ["sc-hit"] }).length > 0) return;
+      map.getCanvas().style.cursor = "pointer";
+      const p = e.features[0].properties;
+      let html = `<strong>${p.name}</strong><br/>${p.brand}（免转接） · ${p.kw || "?"} kW`;
+      if (p.hours) html += `<br/>${p.hours}`;
+      if (p.status === 2) html += `<br/><span style="color:#4ade80">当前出发起点</span>`;
+      else if (p.status === 1 && p.arrivalPct >= 0) html += `<br/><span style="color:#4ade80">预计到达剩余约 ${p.arrivalPct}%</span>`;
+      hoverPopup.setLngLat(e.features[0].geometry.coordinates).setHTML(html).addTo(map);
+    });
+    map.on("mouseleave", "nacs-hit", () => {
+      map.getCanvas().style.cursor = "";
+      hoverPopup.remove();
+    });
+    map.on("click", "nacs-hit", async (e) => {
+      if (map.queryRenderedFeatures(e.point, { layers: ["sc-hit"] }).length > 0) return;
+      selectedNacsIdx = e.features[0].properties.idx;
+      selectedScIdx = -1;
       if (dataReadyPromise) await dataReadyPromise;
       updateReachability({ animate: true, pan: true });
     });
@@ -1112,7 +1240,8 @@
   function evaluateDestination(dest) {
     const resEl = document.getElementById("dest-result");
     const clearBtn = document.getElementById("btn-dest-clear");
-    if (!dest || selectedScIdx < 0 || !graph) {
+    const sc = getSelectedOrigin();
+    if (!dest || !sc || !graph) {
       resEl.classList.add("hidden");
       clearBtn.classList.add("hidden");
       updateDestRouteLayer(null, null);
@@ -1120,7 +1249,6 @@
     }
     clearBtn.classList.remove("hidden");
 
-    const sc = superchargers[selectedScIdx];
     const params = computeEnergyParams();
     const { budgetWh, usableFullWh, winterMult } = params;
     const offroadWhPerKm = state.whPerKm * 1.12 * winterMult * (state.roundTrip ? 2.0 : 1.0);
@@ -1379,8 +1507,7 @@
     if (!map) return;
     const src = map.getSource("camp-spots");
     if (!src) return;
-    const show = currentMode === "camp" || state.showCamp;
-    if (!show || !campSpots.length) {
+    if (currentMode !== "camp" || !campSpots.length) {
       src.setData({ type: "FeatureCollection", features: [] });
       return;
     }
@@ -1546,6 +1673,10 @@
     if (map && map.getLayer("sc-circles")) {
       map.setPaintProperty("sc-circles", "circle-opacity", isCamp ? 0.35 : 1.0);
       map.setPaintProperty("sc-circles", "circle-stroke-opacity", isCamp ? 0.4 : 1.0);
+    }
+    if (map && map.getLayer("nacs-circles")) {
+      map.setPaintProperty("nacs-circles", "circle-opacity", isCamp ? 0.2 : 1.0);
+      map.setPaintProperty("nacs-circles", "circle-stroke-opacity", isCamp ? 0.25 : 1.0);
     }
     updateCampLayer();
   }
@@ -1750,7 +1881,7 @@
     const chkWin = document.getElementById("chk-winter");
     const chkFer = document.getElementById("chk-ferry");
     const chkFerChg = document.getElementById("chk-ferry-charge");
-    const chkCamp = document.getElementById("chk-camp");
+    const chkNacs = document.getElementById("chk-nacs");
     const ferChgRow = document.getElementById("ferry-charge-row");
 
     const paintFill = (el) => {
@@ -1787,7 +1918,7 @@
       chkWin.checked = state.winter;
       chkFer.checked = state.ferry;
       chkFerChg.checked = state.ferryCharge;
-      chkCamp.checked = state.showCamp;
+      chkNacs.checked = state.showNacs;
       ferChgRow.classList.toggle("disabled", !state.ferry);
       [sWh, sFull, sDep, sArr].forEach(paintFill);
       syncPresetPills();
@@ -1868,10 +1999,10 @@
       updateReachability();
     });
 
-    chkCamp.addEventListener("change", () => {
-      state.showCamp = chkCamp.checked;
+    chkNacs.addEventListener("change", () => {
+      state.showNacs = chkNacs.checked;
       saveState();
-      updateCampLayer();
+      updateReachability();
     });
 
     document.getElementById("btn-close-camp").addEventListener("click", () => {
@@ -1981,6 +2112,7 @@
 
     document.getElementById("btn-clear-sc").addEventListener("click", () => {
       selectedScIdx = -1;
+      selectedNacsIdx = -1;
       updateReachability();
     });
 
@@ -2143,11 +2275,15 @@
 
     try {
       // 1. Load lightweight superchargers list (37 KB) & show map immediately
-      const scData = await fetch("data/superchargers.json").then((r) => r.json());
+      const [scData, nacsData] = await Promise.all([
+        fetch("data/superchargers.json").then((r) => r.json()),
+        fetch("data/nacs_chargers.json").then((r) => r.json()).catch(() => []),
+      ]);
       superchargers = scData.map((x) => ({
         ...x,
         name: x.name.replace(/,\s*Japan\s*-?\s*/, " · ").replace(/\s·\s$/, ""),
       }));
+      nacsChargers = nacsData;
 
       // 2. Start loading heavy graph + landgrid in background (with IndexedDB cache)
       const totalExpected = 22656497 + 1321542;
