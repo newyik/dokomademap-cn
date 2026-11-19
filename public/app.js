@@ -693,13 +693,13 @@
     } else if (hasCar) {
       updateFerryLayer(carUsed, carBudgetWh);
       const reachableScCount = updateSuperchargerLayer(carUsed, carBudgetWh);
-      document.getElementById("sc-name").textContent = "🚗 我的 Model 3 当前位置";
+      document.getElementById("sc-name").textContent = "我的车 · 当前位置";
       document.getElementById("sc-meta").textContent = `当前电量 ${carState.soc}%${carState.updatedAt ? " · 已同步" : ""}`;
       document.getElementById("metric-kwh").textContent = `${(carBudgetWh / 1000.0).toFixed(1)} kWh`;
       const flatKm = carBudgetWh > 0 ? (carBudgetWh / (state.whPerKm * winterMult)) / (state.roundTrip ? 2.0 : 1.0) : 0;
       document.getElementById("metric-range").textContent = `${Math.round(flatKm)} km`;
       const carPill = document.getElementById("btn-car-pill");
-      if (carPill) carPill.textContent = `🚗 ${carState.soc}% · ${Math.round(flatKm)} km ▴`;
+      if (carPill) carPill.innerHTML = `<span class="car-pill-dot"></span>我的车 <b>${carState.soc}%</b> · 还能开 <b>${Math.round(flatKm)} km</b>`;
       document.getElementById("metric-sc-count").textContent = `${reachableScCount} 座`;
       const gauge = document.getElementById("soc-gauge");
       if (gauge) {
@@ -967,7 +967,8 @@
           "interpolate",
           ["linear"],
           ["zoom"],
-          4, ["case", ["==", ["get", "status"], 2], 8, 5.2],
+          4, ["case", ["==", ["get", "status"], 2], 7, 3.8],
+          6, ["case", ["==", ["get", "status"], 2], 8, 5],
           8, ["case", ["==", ["get", "status"], 2], 10, 7],
           12, ["case", ["==", ["get", "status"], 2], 12, 9],
         ],
@@ -2713,6 +2714,21 @@
       const collapsed = drawer.classList.toggle("collapsed");
       btnDrawer.setAttribute("aria-expanded", String(!collapsed));
     });
+    const closeDrawer = () => {
+      drawer.classList.add("collapsed");
+      btnDrawer.setAttribute("aria-expanded", "false");
+    };
+    // 手机上点地图空白处自动收起参数面板，避免挡住地图
+    document.getElementById("map").addEventListener("pointerdown", () => {
+      if (window.innerWidth <= 760 && !drawer.classList.contains("collapsed")) closeDrawer();
+    });
+    // Esc 关闭弹窗和参数面板
+    document.addEventListener("keydown", (e) => {
+      if (e.key !== "Escape") return;
+      const open = [...document.querySelectorAll(".modal-backdrop:not(.hidden)")];
+      if (open.length) { open.forEach((m) => m.classList.add("hidden")); return; }
+      if (!drawer.classList.contains("collapsed")) closeDrawer();
+    });
 
     const modal = document.getElementById("info-modal");
     document.getElementById("btn-info").addEventListener("click", () => modal.classList.remove("hidden"));
@@ -2877,13 +2893,13 @@
         attributionControl: false,
       });
 
-      map.addControl(new maplibregl.NavigationControl({ showCompass: true }), "bottom-left");
+      map.addControl(new maplibregl.NavigationControl({ showCompass: true }), "bottom-right");
       map.addControl(
         new maplibregl.AttributionControl({
           compact: true,
           customAttribution: "高程数据: 国土地理院 | 路网: OpenStreetMap | 超充: supercharge.info | 底图: OpenFreeMap",
         }),
-        "bottom-left"
+        "bottom-right"
       );
 
       map.on("style.load", () => {
@@ -2893,6 +2909,8 @@
       map.on("load", () => {
         bindMapInteractions();
         loadingOverlay.classList.add("hidden");
+        // 版权说明默认收起成 ⓘ，不占地图
+        document.querySelector(".maplibregl-ctrl-attrib")?.classList.remove("maplibregl-compact-show");
       });
     } catch (err) {
       console.error(err);

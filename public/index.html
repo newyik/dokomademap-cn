@@ -11,7 +11,7 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23e31937'/><path d='M17.5 5l-8 12h5.5l-1.5 10 9-13h-5.5z' fill='%23fff'/></svg>" />
   <link rel="preconnect" href="https://tiles.openfreemap.org" crossorigin />
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
-  <link rel="stylesheet" href="style.css?v=20261119n" />
+  <link rel="stylesheet" href="style.css?v=20261119ui1" />
 </head>
 <body>
   <div id="map"></div>
@@ -30,8 +30,8 @@
     </div>
 
     <div class="mode-tabs" role="tablist" aria-label="功能切换">
-      <button id="tab-map" class="mode-tab active" type="button" role="tab" aria-selected="true">⚡ 超充地图</button>
-      <button id="tab-camp" class="mode-tab" type="button" role="tab" aria-selected="false">⛺ 车中泊</button>
+      <button id="tab-map" class="mode-tab active" type="button" role="tab" aria-selected="true">超充地图</button>
+      <button id="tab-camp" class="mode-tab" type="button" role="tab" aria-selected="false">车中泊</button>
     </div>
 
     <div id="data-progress-pill" class="progress-pill hidden">
@@ -40,8 +40,8 @@
     </div>
 
     <div class="topbar-actions">
-      <button id="btn-my-car" class="pill-btn ghost purple-on" type="button" aria-pressed="false" title="同步 NAS 车辆电量并显示紫色可达辐射">🚗 我的车</button>
-      <button id="btn-toggle-nacs" class="pill-btn ghost" type="button" aria-pressed="false" title="显示/隐藏免转接第三方 NACS 充电桩点位">🔌 第三方桩</button>
+      <button id="btn-my-car" class="pill-btn ghost purple-on" type="button" aria-pressed="false" title="同步车辆电量，显示紫色可达范围"><svg viewBox="0 0 24 24"><path d="M5 16V11.5l1.8-4.2A2 2 0 0 1 8.6 6h6.8a2 2 0 0 1 1.8 1.3l1.8 4.2V16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><rect x="3.5" y="11" width="17" height="6" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="7.5" cy="14" r="1" fill="currentColor"/><circle cx="16.5" cy="14" r="1" fill="currentColor"/><path d="M6 17v2M18 17v2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><span>我的车</span></button>
+      <button id="btn-toggle-nacs" class="pill-btn ghost" type="button" aria-pressed="false" title="显示/隐藏免转接的第三方 NACS 充电桩"><svg viewBox="0 0 24 24"><path d="M9 3v4M15 3v4M6 7h12v4a6 6 0 0 1-12 0zM12 17v4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>第三方桩</span></button>
       <button id="btn-locate" class="icon-btn" type="button" title="定位并查找附近超充站" aria-label="定位附近超充">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" fill="currentColor"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
       </button>
@@ -74,7 +74,7 @@
           <div id="sc-name" class="sc-name">—</div>
           <div id="sc-meta" class="sc-meta">—</div>
         </div>
-        <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
+        <div class="status-actions">
           <button id="btn-car-refresh" class="icon-btn sm hidden" type="button" title="刷新车辆最新电量与位置" aria-label="刷新车辆状态">
             <svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </button>
@@ -121,9 +121,9 @@
       </div>
 
       <div class="legend">
-        <span>充裕</span>
+        <span>电量充裕</span>
         <div class="legend-bar"></div>
-        <span>极限</span>
+        <span>刚好够到</span>
       </div>
       <div id="ferry-legend" class="ferry-legend">
         <span><i class="line-ev"></i>船上可充电</span>
@@ -176,16 +176,16 @@
       <div class="camp-tip">日本礼仪提示：道の駅与 SA/PA 允许夜间在车内休息睡眠，但请勿在车外搭帐篷、摆放桌椅或使用明火。</div>
     </div>
   </aside>
-  <div id="car-pill-bar" class="hidden" style="position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:25;display:flex;align-items:center;gap:6px;">
-    <button id="btn-car-pill" class="pill-btn" type="button" style="box-shadow:0 6px 20px rgba(0,0,0,0.28);background:rgba(147,51,234,0.92);color:#fff;border:1px solid rgba(255,255,255,0.25);backdrop-filter:blur(10px);">🚗 我的车详情 ▴</button>
-    <button id="btn-car-pill-clear" class="pill-btn" type="button" title="清除我的车辆紫色范围" style="box-shadow:0 6px 20px rgba(0,0,0,0.28);background:rgba(30,41,59,0.88);color:#fff;border:1px solid rgba(255,255,255,0.22);backdrop-filter:blur(10px);padding:6px 10px;">✕</button>
+  <div id="car-pill-bar" class="car-pill-bar hidden">
+    <button id="btn-car-pill" class="car-pill-main" type="button"><span class="car-pill-dot"></span>我的车 · 展开详情</button>
+    <button id="btn-car-pill-clear" class="car-pill-x" type="button" title="清除我的车的紫色范围" aria-label="清除我的车的紫色范围"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
   </div>
 
   <!-- Camp Map Mode Floating Bar (Full Map First) -->
   <aside id="camp-map-bar" class="camp-map-bar glass hidden">
     <div class="cmb-top">
       <span class="cmb-hint">点击地图上任意点位测算耗电，或搜索地名</span>
-      <button id="btn-open-camp-search" class="pill-btn sm" type="button">🔍 搜索 / 列表</button>
+      <button id="btn-open-camp-search" class="pill-btn sm" type="button">搜索 / 列表</button>
     </div>
     <div id="cmb-filters" class="cv-filters">
       <button class="cv-chip active" type="button" data-filter="all">全部</button>
@@ -195,10 +195,10 @@
       <button class="cv-chip" type="button" data-filter="onsen">♨️ 温泉</button>
       <button class="cv-chip" type="button" data-filter="power">🔌 电源</button>
     </div>
-    <div style="margin-top:8px;font-size:11px;color:var(--text-2);display:flex;gap:12px;flex-wrap:wrap">
-      <span><i style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#f59e0b;margin-right:4px"></i>道の駅</span>
-      <span><i style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#14b8a6;margin-right:4px"></i>RV 公园</span>
-      <span><i style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#60a5fa;margin-right:4px"></i>高速 SA</span>
+    <div class="cmb-legend">
+      <span><i style="background:#f59e0b"></i>道の駅</span>
+      <span><i style="background:#14b8a6"></i>RV 公园</span>
+      <span><i style="background:#60a5fa"></i>高速 SA</span>
     </div>
   </aside>
 
@@ -466,6 +466,6 @@
   </div>
 
   <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
-  <script src="app.js?v=20261119r"></script>
+  <script src="app.js?v=20261119ui1"></script>
 </body>
 </html>
