@@ -635,47 +635,7 @@
     return reachableCount;
   }
 
-  function updateNacsLayer(usedArr, budgetWh) {
-    if (!map) return 0;
-    const src = map.getSource("nacs-chargers");
-    if (!src) return 0;
-    if (!state.showNacs || !nacsChargers.length) {
-      src.setData({ type: "FeatureCollection", features: [] });
-      return 0;
-    }
-
-    let reachableCount = 0;
-    const { usableFullWh } = computeEnergyParams();
-    const features = nacsChargers.map((n, idx) => {
-      let status = 0;
-      let arrivalPct = -1;
-      if (idx === selectedNacsIdx) {
-        status = 2;
-      } else if (usedArr && usedArr[n.node] <= budgetWh) {
-        status = 1;
-        reachableCount++;
-        if (usableFullWh > 0) {
-          const remTotalWh = usableFullWh * (state.departPct / 100.0) - usedArr[n.node];
-          arrivalPct = Math.max(0, Math.min(100, Math.round((remTotalWh / usableFullWh) * 100)));
-        }
-      }
-      return {
-        type: "Feature",
-        geometry: { type: "Point", coordinates: [n.lon, n.lat] },
-        properties: {
-          idx,
-          name: n.name,
-          brand: n.brand,
-          kw: n.kw,
-          hours: n.hours,
-          status,
-          arrivalPct,
-        },
-      };
-    });
-    src.setData({ type: "FeatureCollection", features });
-    return reachableCount;
-  }
+  function updateNacsLayer() { return 0; }
 
   function findFirstSymbolLayerId() {
     const layers = map.getStyle().layers || [];
@@ -1885,7 +1845,6 @@
     const chkWin = document.getElementById("chk-winter");
     const chkFer = document.getElementById("chk-ferry");
     const chkFerChg = document.getElementById("chk-ferry-charge");
-    const chkNacs = document.getElementById("chk-nacs");
     const ferChgRow = document.getElementById("ferry-charge-row");
 
     const paintFill = (el) => {
@@ -1922,7 +1881,7 @@
       chkWin.checked = state.winter;
       chkFer.checked = state.ferry;
       chkFerChg.checked = state.ferryCharge;
-      chkNacs.checked = state.showNacs;
+      state.showNacs = false;
       ferChgRow.classList.toggle("disabled", !state.ferry);
       [sWh, sFull, sDep, sArr].forEach(paintFill);
       syncPresetPills();
@@ -1999,12 +1958,6 @@
 
     chkFerChg.addEventListener("change", () => {
       state.ferryCharge = chkFerChg.checked;
-      saveState();
-      updateReachability();
-    });
-
-    chkNacs.addEventListener("change", () => {
-      state.showNacs = chkNacs.checked;
       saveState();
       updateReachability();
     });
