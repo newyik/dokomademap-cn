@@ -670,6 +670,8 @@
 
     const btnCarRefreshEl = document.getElementById("btn-car-refresh");
     if (btnCarRefreshEl) btnCarRefreshEl.classList.toggle("hidden", !hasCar || Boolean(sc));
+    const btnCarSettingsEl = document.getElementById("btn-car-settings");
+    if (btnCarSettingsEl) btnCarSettingsEl.classList.toggle("hidden", !hasCar || Boolean(sc));
 
     if (sc) {
       updateFerryLayer(goUsed, budgetWh);
@@ -2462,36 +2464,44 @@
     };
 
     btnMyCar.addEventListener("click", async () => {
-      if (!carState.active) {
-        let savedNas = {};
-        try { savedNas = JSON.parse(localStorage.getItem("dokomademap_nas_v1") || "{}"); } catch (_) {}
-        if (carState.node >= 0) {
-          // Restore last synced car state immediately without re-asking credentials
-          carState.active = true;
-          cardMinimized = false;
-          document.getElementById("status-card").classList.remove("hidden");
-          const carPill = document.getElementById("btn-car-pill");
-          if (carPill) carPill.classList.add("hidden");
-          state.departPct = carState.soc;
-          syncControlsFromState();
-          selectedScIdx = -1;
-          selectedNacsIdx = -1;
-          btnMyCar.setAttribute("aria-pressed", "true");
-          updateReachability({ animate: true, pan: true });
-          if (savedNas.url) syncFromNas(savedNas.url, savedNas.token, { silent: true, pan: false }).catch(() => {});
+      let savedNas = {};
+      try { savedNas = JSON.parse(localStorage.getItem("dokomademap_nas_v1") || "{}"); } catch (_) {}
+      if (carState.node >= 0) {
+        carState.active = true;
+        cardMinimized = false;
+        document.getElementById("status-card").classList.remove("hidden");
+        const carPill = document.getElementById("btn-car-pill");
+        if (carPill) carPill.classList.add("hidden");
+        state.departPct = carState.soc;
+        syncControlsFromState();
+        selectedScIdx = -1;
+        selectedNacsIdx = -1;
+        btnMyCar.setAttribute("aria-pressed", "true");
+        updateReachability({ animate: true, pan: true });
+        if (savedNas.url) syncFromNas(savedNas.url, savedNas.token, { silent: true, pan: false }).catch(() => {});
+        return;
+      }
+      if (savedNas.lastCar && typeof savedNas.lastCar.lat === "number") {
+        const lc = savedNas.lastCar;
+        if (lc.full_range_km) state.fullRangeKm = Math.max(450, Math.min(680, Math.round(lc.full_range_km / 10) * 10));
+        if (lc.wh_per_km) state.whPerKm = Math.max(120, Math.min(240, Math.round(lc.wh_per_km / 5) * 5));
+        await activateCarPurple(lc.lat, lc.lon, lc.soc, lc.updatedAt || "NAS");
+        if (savedNas.url) syncFromNas(savedNas.url, savedNas.token, { silent: true, pan: false }).catch(() => {});
+        return;
+      }
+      if (savedNas.url) {
+        try {
+          await syncFromNas(savedNas.url, savedNas.token, { silent: true, pan: true });
           return;
-        }
-        if (savedNas.lastCar && typeof savedNas.lastCar.lat === "number") {
-          const lc = savedNas.lastCar;
-          if (lc.full_range_km) state.fullRangeKm = Math.max(450, Math.min(680, Math.round(lc.full_range_km / 10) * 10));
-          if (lc.wh_per_km) state.whPerKm = Math.max(120, Math.min(240, Math.round(lc.wh_per_km / 5) * 5));
-          await activateCarPurple(lc.lat, lc.lon, lc.soc, lc.updatedAt || "NAS");
-          if (savedNas.url) syncFromNas(savedNas.url, savedNas.token, { silent: true, pan: false }).catch(() => {});
-          return;
-        }
+        } catch (_) {}
       }
       nasModal.classList.remove("hidden");
     });
+
+    const btnCarSettings = document.getElementById("btn-car-settings");
+    if (btnCarSettings) {
+      btnCarSettings.addEventListener("click", () => nasModal.classList.remove("hidden"));
+    }
 
     const btnCarRefresh = document.getElementById("btn-car-refresh");
     if (btnCarRefresh) {
