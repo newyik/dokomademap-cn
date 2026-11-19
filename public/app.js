@@ -10,7 +10,7 @@
     winter: false,
     ferry: true,
     ferryCharge: true,
-    showNacs: true,
+    showNacs: false,
     fontScale: 1,
     theme: "auto", // auto | dark | light
   };
@@ -52,6 +52,7 @@
   let cvSentry = false;
   let cvFridge = false;
   let currentTheme = resolveTheme(state.theme);
+  let styleReady = false;
 
   // Offscreen canvas for Mercator land-masked reachability overlay
   let reachCanvas = null;
@@ -454,6 +455,8 @@
     const ferryLegendEl = document.getElementById("ferry-legend");
     const sc = getSelectedOrigin();
 
+    ensureReachOverlaySource();
+
     if (!sc) {
       if (selectedCampIdx < 0) emptyEl.classList.remove("hidden");
       else emptyEl.classList.add("hidden");
@@ -692,7 +695,7 @@
   }
 
   function ensureReachOverlaySource() {
-    if (!map || !grid || !map.isStyleLoaded()) return;
+    if (!map || !grid || !styleReady) return;
     if (map.getSource("reach-overlay")) return;
     const beforeId = findFirstSymbolLayerId();
     map.addSource("reach-overlay", {
@@ -722,6 +725,7 @@
   }
 
   function setupMapLayers() {
+    styleReady = true;
     const beforeId = findFirstSymbolLayerId();
 
     ensureReachOverlaySource();
