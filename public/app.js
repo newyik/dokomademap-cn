@@ -70,6 +70,7 @@
   let nacsUsed = null;
   let carUsed = null;
   let carState = { active: false, lat: 0, lon: 0, node: -1, soc: 80, updatedAt: "" };
+  let cardMinimized = false;
   let goParentNode = null;
   let goParentEdge = null;
   let backUsed = null;
@@ -695,6 +696,8 @@
       document.getElementById("metric-kwh").textContent = `${(carBudgetWh / 1000.0).toFixed(1)} kWh`;
       const flatKm = carBudgetWh > 0 ? (carBudgetWh / (state.whPerKm * winterMult)) / (state.roundTrip ? 2.0 : 1.0) : 0;
       document.getElementById("metric-range").textContent = `${Math.round(flatKm)} km`;
+      const carPill = document.getElementById("btn-car-pill");
+      if (carPill) carPill.textContent = `🚗 ${carState.soc}% · ${Math.round(flatKm)} km ▴`;
       document.getElementById("metric-sc-count").textContent = `${reachableScCount} 座`;
       const gauge = document.getElementById("soc-gauge");
       if (gauge) {
@@ -2351,12 +2354,30 @@
     });
 
     document.getElementById("btn-clear-sc").addEventListener("click", () => {
+      if (carState.active && selectedScIdx < 0) {
+        // Minimize bottom card so user can view purple reachability full-screen
+        cardMinimized = true;
+        document.getElementById("status-card").classList.add("hidden");
+        const carPill = document.getElementById("btn-car-pill");
+        if (carPill) carPill.classList.remove("hidden");
+        return;
+      }
+      cardMinimized = false;
       selectedScIdx = -1;
       selectedNacsIdx = -1;
       carState.active = false;
       document.getElementById("btn-my-car").setAttribute("aria-pressed", "false");
       updateReachability();
     });
+
+    const btnCarPillEl = document.getElementById("btn-car-pill");
+    if (btnCarPillEl) {
+      btnCarPillEl.addEventListener("click", () => {
+        cardMinimized = false;
+        btnCarPillEl.classList.add("hidden");
+        document.getElementById("status-card").classList.remove("hidden");
+      });
+    }
 
     // NAS TeslaMate Car Sync Modal & Purple Reachability
     const nasModal = document.getElementById("nas-modal");
@@ -2380,6 +2401,10 @@
         return false;
       }
       carState = { active: true, lat, lon, node: snap.node, soc, updatedAt };
+      cardMinimized = false;
+      document.getElementById("status-card").classList.remove("hidden");
+      const carPill = document.getElementById("btn-car-pill");
+      if (carPill) carPill.classList.add("hidden");
       state.departPct = soc;
       syncControlsFromState();
       saveState();
@@ -2421,6 +2446,10 @@
       const snap = findNearestNode(d.lat, d.lon, Infinity);
       if (snap.node < 0) throw new Error("该位置不在日本路网范围内");
       carState = { active: true, lat: d.lat, lon: d.lon, node: snap.node, soc, updatedAt };
+      cardMinimized = false;
+      document.getElementById("status-card").classList.remove("hidden");
+      const carPill = document.getElementById("btn-car-pill");
+      if (carPill) carPill.classList.add("hidden");
       state.departPct = soc;
       syncControlsFromState();
       saveState();
@@ -2439,6 +2468,10 @@
         if (carState.node >= 0) {
           // Restore last synced car state immediately without re-asking credentials
           carState.active = true;
+          cardMinimized = false;
+          document.getElementById("status-card").classList.remove("hidden");
+          const carPill = document.getElementById("btn-car-pill");
+          if (carPill) carPill.classList.add("hidden");
           state.departPct = carState.soc;
           syncControlsFromState();
           selectedScIdx = -1;
