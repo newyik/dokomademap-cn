@@ -176,7 +176,10 @@
       <div class="camp-tip">日本礼仪提示：道の駅与 SA/PA 允许夜间在车内休息睡眠，但请勿在车外搭帐篷、摆放桌椅或使用明火。</div>
     </div>
   </aside>
-  <button id="btn-car-pill" class="pill-btn hidden" type="button" style="position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:25;box-shadow:0 6px 20px rgba(0,0,0,0.28);background:rgba(147,51,234,0.92);color:#fff;border:1px solid rgba(255,255,255,0.25);backdrop-filter:blur(10px);">🚗 我的车详情 ▴</button>
+  <div id="car-pill-bar" class="hidden" style="position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:25;display:flex;align-items:center;gap:6px;">
+    <button id="btn-car-pill" class="pill-btn" type="button" style="box-shadow:0 6px 20px rgba(0,0,0,0.28);background:rgba(147,51,234,0.92);color:#fff;border:1px solid rgba(255,255,255,0.25);backdrop-filter:blur(10px);">🚗 我的车详情 ▴</button>
+    <button id="btn-car-pill-clear" class="pill-btn" type="button" title="清除我的车辆紫色范围" style="box-shadow:0 6px 20px rgba(0,0,0,0.28);background:rgba(30,41,59,0.88);color:#fff;border:1px solid rgba(255,255,255,0.22);backdrop-filter:blur(10px);padding:6px 10px;">✕</button>
+  </div>
 
   <!-- Camp Map Mode Floating Bar (Full Map First) -->
   <aside id="camp-map-bar" class="camp-map-bar glass hidden">
@@ -463,6 +466,6 @@
   </div>
 
   <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
-  <script src="app.js?v=20261119q"></script>
+  <script src="app.js?v=20261119r"></script>
 </body>
 </html>

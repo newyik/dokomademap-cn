@@ -2355,13 +2355,16 @@
       updateReachability();
     });
 
+    const setCarPillVisible = (show) => {
+      const bar = document.getElementById("car-pill-bar");
+      if (bar) bar.classList.toggle("hidden", !show);
+    };
     document.getElementById("btn-clear-sc").addEventListener("click", () => {
       if (carState.active && selectedScIdx < 0) {
         // Minimize bottom card so user can view purple reachability full-screen
         cardMinimized = true;
         document.getElementById("status-card").classList.add("hidden");
-        const carPill = document.getElementById("btn-car-pill");
-        if (carPill) carPill.classList.remove("hidden");
+        setCarPillVisible(true);
         return;
       }
       cardMinimized = false;
@@ -2369,6 +2372,7 @@
       selectedNacsIdx = -1;
       carState.active = false;
       document.getElementById("btn-my-car").setAttribute("aria-pressed", "false");
+      setCarPillVisible(false);
       updateReachability();
     });
 
@@ -2376,9 +2380,44 @@
     if (btnCarPillEl) {
       btnCarPillEl.addEventListener("click", () => {
         cardMinimized = false;
-        btnCarPillEl.classList.add("hidden");
+        setCarPillVisible(false);
         document.getElementById("status-card").classList.remove("hidden");
       });
+    }
+    const btnCarPillClearEl = document.getElementById("btn-car-pill-clear");
+    if (btnCarPillClearEl) {
+      btnCarPillClearEl.addEventListener("click", () => {
+        cardMinimized = false;
+        carState.active = false;
+        setCarPillVisible(false);
+        document.getElementById("status-card").classList.remove("hidden");
+        document.getElementById("btn-my-car").setAttribute("aria-pressed", "false");
+        updateReachability();
+      });
+    }
+
+    // Swipe down on bottom status card to minimize (same as clicking ×) when viewing My Car
+    const statusCardEl = document.getElementById("status-card");
+    if (statusCardEl) {
+      let touchStartY = null;
+      statusCardEl.addEventListener("touchstart", (e) => {
+        if (e.touches && e.touches.length === 1 && !e.target.closest("input, button, select")) {
+          touchStartY = e.touches[0].clientY;
+        } else {
+          touchStartY = null;
+        }
+      }, { passive: true });
+      statusCardEl.addEventListener("touchend", (e) => {
+        if (touchStartY !== null && e.changedTouches && e.changedTouches.length === 1) {
+          const dy = e.changedTouches[0].clientY - touchStartY;
+          if (dy > 45 && carState.active && selectedScIdx < 0) {
+            cardMinimized = true;
+            statusCardEl.classList.add("hidden");
+            setCarPillVisible(true);
+          }
+        }
+        touchStartY = null;
+      }, { passive: true });
     }
 
     // NAS TeslaMate Car Sync Modal & Purple Reachability
@@ -2405,8 +2444,8 @@
       carState = { active: true, lat, lon, node: snap.node, soc, updatedAt };
       cardMinimized = false;
       document.getElementById("status-card").classList.remove("hidden");
-      const carPill = document.getElementById("btn-car-pill");
-      if (carPill) carPill.classList.add("hidden");
+      const carPillBar = document.getElementById("car-pill-bar");
+      if (carPillBar) carPillBar.classList.add("hidden");
       state.departPct = soc;
       syncControlsFromState();
       saveState();
@@ -2450,8 +2489,8 @@
       carState = { active: true, lat: d.lat, lon: d.lon, node: snap.node, soc, updatedAt };
       cardMinimized = false;
       document.getElementById("status-card").classList.remove("hidden");
-      const carPill = document.getElementById("btn-car-pill");
-      if (carPill) carPill.classList.add("hidden");
+      const carPillBar2 = document.getElementById("car-pill-bar");
+      if (carPillBar2) carPillBar2.classList.add("hidden");
       state.departPct = soc;
       syncControlsFromState();
       saveState();
@@ -2470,8 +2509,8 @@
         carState.active = true;
         cardMinimized = false;
         document.getElementById("status-card").classList.remove("hidden");
-        const carPill = document.getElementById("btn-car-pill");
-        if (carPill) carPill.classList.add("hidden");
+        const carPillBar3 = document.getElementById("car-pill-bar");
+        if (carPillBar3) carPillBar3.classList.add("hidden");
         state.departPct = carState.soc;
         syncControlsFromState();
         selectedScIdx = -1;
@@ -2776,10 +2815,25 @@
         }
         if (selectedScIdx >= 0 || carState.active) {
           updateReachability({ animate: true, pan: carState.active });
-        } else {
-          // Auto-sync saved NAS car connection on subsequent visits (no need to re-type or re-click)
+        }
+        // Always auto-sync saved NAS car connection on subsequent visits
+        if (!carState.active) {
           try {
             const savedNas = JSON.parse(localStorage.getItem("dokomademap_nas_v1") || "{}");
+            if (savedNas.lastCar && typeof savedNas.lastCar.lat === "number") {
+              const lc = savedNas.lastCar;
+              const snap = findNearestNode(lc.lat, lc.lon, Infinity);
+              if (snap.node >= 0) {
+                if (lc.full_range_km) state.fullRangeKm = Math.max(450, Math.min(680, Math.round(lc.full_range_km / 10) * 10));
+                if (lc.wh_per_km) state.whPerKm = Math.max(120, Math.min(240, Math.round(lc.wh_per_km / 5) * 5));
+                state.departPct = lc.soc;
+                selectedScIdx = -1;
+                selectedNacsIdx = -1;
+                carState = { active: true, lat: lc.lat, lon: lc.lon, node: snap.node, soc: lc.soc, updatedAt: lc.updatedAt || "NAS" };
+                document.getElementById("btn-my-car").setAttribute("aria-pressed", "true");
+                updateReachability({ animate: true, pan: true });
+              }
+            }
             if (savedNas.url && savedNas.url.startsWith("http")) {
               const headers = savedNas.token ? { Authorization: `Bearer ${savedNas.token}` } : {};
               fetch(savedNas.url, { headers })
@@ -2791,7 +2845,14 @@
                       if (d.full_range_km) state.fullRangeKm = Math.max(450, Math.min(680, Math.round(d.full_range_km / 10) * 10));
                       if (d.wh_per_km) state.whPerKm = Math.max(120, Math.min(240, Math.round(d.wh_per_km / 5) * 5));
                       state.departPct = Math.max(5, Math.min(100, Math.round(d.soc)));
-                      carState = { active: true, lat: d.lat, lon: d.lon, node: snap.node, soc: state.departPct, updatedAt: d.updated_at || "NAS" };
+                      const updatedAt = d.updated_at || "NAS";
+                      selectedScIdx = -1;
+                      selectedNacsIdx = -1;
+                      carState = { active: true, lat: d.lat, lon: d.lon, node: snap.node, soc: state.departPct, updatedAt };
+                      try {
+                        savedNas.lastCar = { lat: d.lat, lon: d.lon, soc: state.departPct, full_range_km: d.full_range_km, wh_per_km: d.wh_per_km, updatedAt };
+                        localStorage.setItem("dokomademap_nas_v1", JSON.stringify(savedNas));
+                      } catch (_) {}
                       document.getElementById("btn-my-car").setAttribute("aria-pressed", "true");
                       updateReachability({ animate: true, pan: true });
                     }
