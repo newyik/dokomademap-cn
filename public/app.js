@@ -801,6 +801,8 @@
         kw: n.kw,
         hours: n.hours || "",
         addr: n.addr || "",
+        img: n.img || "",
+        gmap: n.gmap || "",
         status: idx === selectedNacsIdx ? 2 : 0,
       },
     }));
@@ -1158,12 +1160,15 @@
       selectedNacsIdx = (selectedNacsIdx === p.idx) ? -1 : p.idx;
       if (dataReadyPromise) await dataReadyPromise;
       updateReachability({ animate: selectedNacsIdx >= 0, pan: false, animateNacsOnly: selectedScIdx >= 0 });
+      const gmapUrl = p.gmap || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(p.name + " " + coords[1] + "," + coords[0])}`;
       new maplibregl.Popup()
         .setLngLat(coords)
         .setHTML(
           `<strong>${p.name}</strong><br/>${p.brand}（免转接） · ${p.kw || "?"} kW` +
+          (p.img ? `<img class="nacs-popup-img" src="${p.img}" alt="${p.name}" loading="lazy" onerror="this.remove()" />` : "") +
           (p.hours ? `<br/>营业时间：${p.hours}` : "") +
           (p.addr ? `<br/>地址：${p.addr}` : "") +
+          `<br/><a class="gmap-link" style="margin-top:6px" href="${gmapUrl}" target="_blank" rel="noopener">📍 Google 地图实景/导航</a>` +
           `<br/><span style="color:#38bdf8">${selectedNacsIdx >= 0 ? "已叠加蓝色新增辐射范围（再点一次可取消）" : "已取消该第三方桩辐射范围"}</span>`
         )
         .addTo(map);
@@ -1931,6 +1936,54 @@
     }
   }
 
+  const spotPhotoCache = new Map();
+
+  async function fetchSpotPhotos(spot) {
+    const cacheKey = `${spot.name}|${spot.lat}|${spot.lon}`;
+    if (spotPhotoCache.has(cacheKey)) return spotPhotoCache.get(cacheKey);
+    const urls = [];
+    const cleanTitle = spot.name.replace(/\s+/g, "").replace(/[「」]/g, "");
+    try {
+      const wUrl = `https://ja.wikipedia.org/w/api.php?origin=*&action=query&titles=${encodeURIComponent(cleanTitle)}&redirects=1&prop=pageimages&pithumbsize=640&format=json`;
+      const wd = await fetch(wUrl).then((r) => r.json());
+      const pages = wd?.query?.pages || {};
+      for (const k of Object.keys(pages)) {
+        const src = pages[k]?.thumbnail?.source;
+        if (src && !urls.includes(src)) urls.push(src);
+      }
+    } catch (_) {}
+
+    if (urls.length < 3) {
+      try {
+        const cUrl = `https://commons.wikimedia.org/w/api.php?origin=*&action=query&generator=geosearch&ggsprimary=all&ggsnamespace=6&ggscoord=${spot.lat}|${spot.lon}&ggsradius=900&ggslimit=4&prop=imageinfo&iiprop=url&iiurlwidth=640&format=json`;
+        const cd = await fetch(cUrl).then((r) => r.json());
+        const pages = cd?.query?.pages || {};
+        for (const k of Object.keys(pages)) {
+          const info = pages[k]?.imageinfo?.[0];
+          const src = info?.thumburl || info?.url;
+          if (src && /\.(jpe?g|png|webp)(\?|$)/i.test(src) && !urls.includes(src)) {
+            urls.push(src);
+          }
+          if (urls.length >= 4) break;
+        }
+      } catch (_) {}
+    }
+    spotPhotoCache.set(cacheKey, urls);
+    return urls;
+  }
+
+  async function renderCampViewPhotos(spot, idx) {
+    const box = document.getElementById("cv-photos");
+    if (!box) return;
+    const gmapUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(spot.name + " " + spot.lat + "," + spot.lon)}`;
+    box.innerHTML = `<a class="gmap-link" href="${gmapUrl}" target="_blank" rel="noopener">📍 Google 地图看实景/评价</a><span style="font-size:11px;color:var(--text-3)">正在查找实景照片…</span>`;
+    const urls = await fetchSpotPhotos(spot);
+    if (selectedCampIdx !== idx) return;
+    box.innerHTML =
+      urls.map((u) => `<a href="${u}" target="_blank" rel="noopener"><img class="cv-photo-img" src="${u}" alt="${spot.name}" loading="lazy" /></a>`).join("") +
+      `<a class="gmap-link" href="${gmapUrl}" target="_blank" rel="noopener">📍 Google 地图看实景/评价</a>`;
+  }
+
   async function selectCampViewSpot(idx) {
     if (idx < 0 || !campSpots[idx]) return;
     selectedCampIdx = idx;
@@ -1953,6 +2006,7 @@
     if (spot.s) tags.push("🚿 淋浴");
     if (!tags.length) tags.push("🅿️ 夜间停靠休息");
     document.getElementById("cv-spot-tags").innerHTML = tags.map((t) => `<span class="camp-tag">${t}</span>`).join("");
+    renderCampViewPhotos(spot, idx);
 
     // Sync arrival SoC if reachable from currently selected SC
     if (selectedScIdx >= 0 && graph && goUsed) {

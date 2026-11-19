@@ -90,6 +90,11 @@ def main():
             continue
         kw_m = re.search(r"(\d+)\s*kW", item.get("output", ""), re.I)
         kw = int(kw_m.group(1)) if kw_m else 0
+        img_rel = (item.get("image") or "").strip()
+        img_url = ""
+        if img_rel:
+            clean_rel = re.sub(r"^\.\.?/", "", img_rel)
+            img_url = f"https://ev-charger.jp/{clean_rel}" if not clean_rel.startswith("http") else clean_rel
         out.append({
             "name": item.get("name", ""),
             "brand": "FLASH NACS",
@@ -99,6 +104,8 @@ def main():
             "hours": item.get("hours", ""),
             "pref": item.get("prefecture", ""),
             "addr": item.get("address", ""),
+            "img": img_url,
+            "gmap": item.get("map", ""),
             "node": int(n_idx),
         })
 

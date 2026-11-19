@@ -372,6 +372,51 @@ body.theme-light .vignette { display: none; }
   color: var(--text-2);
 }
 
+.cv-photos {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  margin-bottom: 10px;
+  scrollbar-width: thin;
+}
+.cv-photo-img {
+  height: 98px;
+  min-width: 136px;
+  max-width: 180px;
+  object-fit: cover;
+  border-radius: 10px;
+  border: 1px solid var(--glass-border);
+  background: var(--sub);
+  cursor: pointer;
+}
+.gmap-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 10px;
+  border-radius: 9px;
+  background: var(--sub-2);
+  border: 1px solid var(--glass-border);
+  color: var(--text);
+  text-decoration: none;
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.gmap-link:hover { background: rgba(62, 139, 255, 0.22); }
+.nacs-popup-img {
+  display: block;
+  width: 100%;
+  max-width: 220px;
+  height: 110px;
+  object-fit: cover;
+  border-radius: 8px;
+  margin: 6px 0;
+  border: 1px solid var(--glass-border);
+}
+
 /* ---------- Drawer ---------- */
 .drawer {
   position: fixed;
