@@ -667,6 +667,9 @@
     const primaryArr = sc ? goUsed : (hasCar ? carUsed : null);
     const primaryBudget = sc ? budgetWh : carBudgetWh;
 
+    const btnCarRefreshEl = document.getElementById("btn-car-refresh");
+    if (btnCarRefreshEl) btnCarRefreshEl.classList.toggle("hidden", !hasCar || Boolean(sc));
+
     if (sc) {
       updateFerryLayer(goUsed, budgetWh);
       const reachableScCount = updateSuperchargerLayer(goUsed, budgetWh);
@@ -2388,7 +2391,94 @@
       return true;
     };
 
-    btnMyCar.addEventListener("click", () => nasModal.classList.remove("hidden"));
+    const saveNasCache = (url, token, lastCar = null) => {
+      try {
+        const prev = JSON.parse(localStorage.getItem("dokomademap_nas_v1") || "{}");
+        const next = { url: url ?? prev.url ?? "", token: token ?? prev.token ?? "", lastCar: lastCar ?? prev.lastCar ?? null };
+        localStorage.setItem("dokomademap_nas_v1", JSON.stringify(next));
+      } catch (_) {}
+    };
+
+    const syncFromNas = async (url, token, { silent = false, pan = true } = {}) => {
+      if (!url) return false;
+      if (!silent) {
+        nasMsgEl.textContent = "正在从 NAS 同步车辆最新状态…";
+        nasMsgEl.classList.remove("hidden");
+      }
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      const resp = await fetch(url, { headers });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const d = await resp.json();
+      if (typeof d.soc !== "number" || typeof d.lat !== "number" || typeof d.lon !== "number") {
+        throw new Error("返回数据缺少 soc / lat / lon");
+      }
+      if (d.full_range_km) state.fullRangeKm = Math.max(450, Math.min(680, Math.round(d.full_range_km / 10) * 10));
+      if (d.wh_per_km) state.whPerKm = Math.max(120, Math.min(240, Math.round(d.wh_per_km / 5) * 5));
+      const soc = Math.max(5, Math.min(100, Math.round(d.soc)));
+      const updatedAt = d.updated_at || "NAS";
+      saveNasCache(url, token, { lat: d.lat, lon: d.lon, soc, full_range_km: d.full_range_km, wh_per_km: d.wh_per_km, updatedAt });
+      if (dataReadyPromise) await dataReadyPromise;
+      const snap = findNearestNode(d.lat, d.lon, Infinity);
+      if (snap.node < 0) throw new Error("该位置不在日本路网范围内");
+      carState = { active: true, lat: d.lat, lon: d.lon, node: snap.node, soc, updatedAt };
+      state.departPct = soc;
+      syncControlsFromState();
+      saveState();
+      selectedScIdx = -1;
+      selectedNacsIdx = -1;
+      btnMyCar.setAttribute("aria-pressed", "true");
+      nasModal.classList.add("hidden");
+      updateReachability({ animate: true, pan });
+      return true;
+    };
+
+    btnMyCar.addEventListener("click", async () => {
+      if (!carState.active) {
+        let savedNas = {};
+        try { savedNas = JSON.parse(localStorage.getItem("dokomademap_nas_v1") || "{}"); } catch (_) {}
+        if (carState.node >= 0) {
+          // Restore last synced car state immediately without re-asking credentials
+          carState.active = true;
+          state.departPct = carState.soc;
+          syncControlsFromState();
+          selectedScIdx = -1;
+          selectedNacsIdx = -1;
+          btnMyCar.setAttribute("aria-pressed", "true");
+          updateReachability({ animate: true, pan: true });
+          if (savedNas.url) syncFromNas(savedNas.url, savedNas.token, { silent: true, pan: false }).catch(() => {});
+          return;
+        }
+        if (savedNas.lastCar && typeof savedNas.lastCar.lat === "number") {
+          const lc = savedNas.lastCar;
+          if (lc.full_range_km) state.fullRangeKm = Math.max(450, Math.min(680, Math.round(lc.full_range_km / 10) * 10));
+          if (lc.wh_per_km) state.whPerKm = Math.max(120, Math.min(240, Math.round(lc.wh_per_km / 5) * 5));
+          await activateCarPurple(lc.lat, lc.lon, lc.soc, lc.updatedAt || "NAS");
+          if (savedNas.url) syncFromNas(savedNas.url, savedNas.token, { silent: true, pan: false }).catch(() => {});
+          return;
+        }
+      }
+      nasModal.classList.remove("hidden");
+    });
+
+    const btnCarRefresh = document.getElementById("btn-car-refresh");
+    if (btnCarRefresh) {
+      btnCarRefresh.addEventListener("click", async () => {
+        let savedNas = {};
+        try { savedNas = JSON.parse(localStorage.getItem("dokomademap_nas_v1") || "{}"); } catch (_) {}
+        if (!savedNas.url) {
+          nasModal.classList.remove("hidden");
+          return;
+        }
+        const metaEl = document.getElementById("sc-meta");
+        if (metaEl) metaEl.textContent = "正在从 NAS 刷新最新电量与位置…";
+        try {
+          await syncFromNas(savedNas.url, savedNas.token, { silent: true, pan: true });
+        } catch (err) {
+          if (metaEl) metaEl.textContent = `刷新失败：${err.message}`;
+        }
+      });
+    }
+
     document.getElementById("btn-close-nas").addEventListener("click", () => nasModal.classList.add("hidden"));
     nasModal.addEventListener("click", (e) => {
       if (e.target === nasModal) nasModal.classList.add("hidden");
@@ -2402,20 +2492,9 @@
         nasMsgEl.classList.remove("hidden");
         return;
       }
-      localStorage.setItem("dokomademap_nas_v1", JSON.stringify({ url, token }));
-      nasMsgEl.textContent = "正在从 NAS 同步车辆最新状态…";
-      nasMsgEl.classList.remove("hidden");
+      saveNasCache(url, token);
       try {
-        const headers = token ? { Authorization: `Bearer ${token}` } : {};
-        const resp = await fetch(url, { headers });
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        const d = await resp.json();
-        if (typeof d.soc !== "number" || typeof d.lat !== "number" || typeof d.lon !== "number") {
-          throw new Error("返回数据缺少 soc / lat / lon");
-        }
-        if (d.full_range_km) state.fullRangeKm = Math.max(450, Math.min(680, Math.round(d.full_range_km / 10) * 10));
-        if (d.wh_per_km) state.whPerKm = Math.max(120, Math.min(240, Math.round(d.wh_per_km / 5) * 5));
-        await activateCarPurple(d.lat, d.lon, Math.max(5, Math.min(100, Math.round(d.soc))), d.updated_at || "NAS");
+        await syncFromNas(url, token, { silent: false, pan: true });
       } catch (err) {
         nasMsgEl.textContent = `同步失败：${err.message}（请检查 NAS 服务和隧道是否正常）`;
       }
