@@ -2832,6 +2832,17 @@
       tripBar.classList.remove("hidden");
       redrawTrips();
       if (fit) fitTrip(t);
+      // 列表里的轨迹是简化过的；点开后再取这段的完整轨迹，弯道更贴合道路
+      if (!t.fullPath) {
+        nasFetch(`/drives/${id}`)
+          .then((d) => {
+            if (!d || !Array.isArray(d.path) || d.path.length < 2) return;
+            t.path = d.path;
+            t.fullPath = true;
+            if (selectedTripId === id) redrawTrips();
+          })
+          .catch(() => {});
+      }
     };
 
     const closeTripView = () => {
