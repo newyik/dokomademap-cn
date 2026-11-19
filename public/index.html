@@ -11,7 +11,7 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23e31937'/><path d='M17.5 5l-8 12h5.5l-1.5 10 9-13h-5.5z' fill='%23fff'/></svg>" />
   <link rel="preconnect" href="https://tiles.openfreemap.org" crossorigin />
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
-  <link rel="stylesheet" href="style.css?v=20261119h" />
+  <link rel="stylesheet" href="style.css?v=20261119i" />
 </head>
 <body>
   <div id="map"></div>
@@ -119,6 +119,9 @@
       <div id="ferry-legend" class="ferry-legend">
         <span><i class="line-ev"></i>船上可充电</span>
         <span><i class="line-std"></i>普通汽车轮渡</span>
+      </div>
+      <div id="nacs-legend" class="nacs-legend hidden">
+        <span><i class="dot-nacs"></i>蓝色区域：第三方 NACS 桩新增辐射范围</span>
       </div>
     </div>
 
@@ -410,6 +413,6 @@
   </div>
 
   <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
-  <script src="app.js?v=20261119h"></script>
+  <script src="app.js?v=20261119i"></script>
 </body>
 </html>

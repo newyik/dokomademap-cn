@@ -316,6 +316,20 @@ body.theme-light .vignette { display: none; }
 .ferry-legend .line-ev { border-top: 2.5px solid var(--green); }
 .ferry-legend .line-std { border-top: 2px dashed #94a3b8; }
 
+.nacs-legend {
+  margin-top: 7px;
+  font-size: 11px;
+  color: #38bdf8;
+}
+.nacs-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.nacs-legend .dot-nacs {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: #38bdf8;
+  display: inline-block;
+}
+
 /* ---------- Drawer ---------- */
 .drawer {
   position: fixed;

@@ -67,6 +67,7 @@
   let parentNode = null;
   let parentEdge = null;
   let goUsed = null;
+  let nacsUsed = null;
   let goParentNode = null;
   let goParentEdge = null;
   let backUsed = null;
@@ -156,6 +157,7 @@
     parentNode = new Int32Array(nNodes);
     parentEdge = new Int32Array(nNodes);
     goUsed = new Float64Array(nNodes);
+    nacsUsed = new Float64Array(nNodes);
     goParentNode = new Int32Array(nNodes);
     goParentEdge = new Int32Array(nNodes);
     backUsed = new Float64Array(nNodes);
@@ -394,24 +396,58 @@
 
   let revealAnimId = 0;
 
-  function paintReachPixels(budgetWh, offroadWhPerM, revealFrac) {
+  // Blue gradient for extra 3rd-party NACS coverage (little-endian ABGR)
+  function ratioToBlueABGR(ratio) {
+    const t = Math.max(0, Math.min(1, ratio));
+    const r = Math.round(37 + t * (56 - 37));
+    const g = Math.round(99 + t * (189 - 99));
+    const b = Math.round(235 + t * (248 - 235));
+    const alpha = Math.round(145 + 30 * (1.0 - t * 0.25));
+    return (alpha << 24) | (b << 16) | (g << 8) | r;
+  }
+
+  function paintReachPixels(budgetWh, offroadWhPerM, scRevealFrac, nacsRevealFrac = 1.0) {
     const { nPix, pixIdx, pixNode, pixDist } = grid;
     reachPixels32.fill(0);
-    if (budgetWh <= 0 || revealFrac <= 0) {
+    if (budgetWh <= 0) {
       reachCtx.putImageData(reachImgData, 0, 0);
       return;
     }
 
     const invBudget = 1.0 / budgetWh;
-    const maxAllowedUsed = budgetWh * revealFrac;
+    const hasSc = selectedScIdx >= 0 && scRevealFrac > 0;
+    const hasNacs = selectedNacsIdx >= 0 && nacsRevealFrac > 0 && nacsUsed;
+    const scMax = budgetWh * scRevealFrac;
+    const nacsMax = budgetWh * nacsRevealFrac;
+
     for (let i = 0; i < nPix; i++) {
-      const nodeUsed = goUsed[pixNode[i]];
-      if (nodeUsed > maxAllowedUsed) continue;
-      const totalUsed = nodeUsed + pixDist[i] * offroadWhPerM;
-      if (totalUsed <= maxAllowedUsed) {
-        const rem = budgetWh - totalUsed;
-        if (rem > 0) {
-          reachPixels32[pixIdx[i]] = ratioToABGR(rem * invBudget);
+      const node = pixNode[i];
+      const offWh = pixDist[i] * offroadWhPerM;
+
+      if (hasSc) {
+        const scNodeUsed = goUsed[node];
+        if (scNodeUsed <= scMax) {
+          const totalUsed = scNodeUsed + offWh;
+          if (totalUsed <= scMax) {
+            const rem = budgetWh - totalUsed;
+            if (rem > 0) {
+              reachPixels32[pixIdx[i]] = ratioToABGR(rem * invBudget);
+              continue;
+            }
+          }
+        }
+      }
+
+      if (hasNacs) {
+        const nNodeUsed = nacsUsed[node];
+        if (nNodeUsed <= nacsMax) {
+          const totalUsed = nNodeUsed + offWh;
+          if (totalUsed <= nacsMax) {
+            const rem = budgetWh - totalUsed;
+            if (rem > 0) {
+              reachPixels32[pixIdx[i]] = ratioToBlueABGR(rem * invBudget);
+            }
+          }
         }
       }
     }
@@ -443,7 +479,7 @@
 
   function updateReachability(opts = {}) {
     if (!graph || !grid || !map) return;
-    const { animate = false, pan = false } = opts;
+    const { animate = false, pan = false, animateNacsOnly = false } = opts;
 
     if (revealAnimId) {
       cancelAnimationFrame(revealAnimId);
@@ -453,14 +489,17 @@
     const emptyEl = document.getElementById("status-empty");
     const activeEl = document.getElementById("status-active");
     const ferryLegendEl = document.getElementById("ferry-legend");
-    const sc = getSelectedOrigin();
+    const nacsLegendEl = document.getElementById("nacs-legend");
+    const sc = selectedScIdx >= 0 ? superchargers[selectedScIdx] : null;
+    const nacsOrigin = selectedNacsIdx >= 0 ? nacsChargers[selectedNacsIdx] : null;
 
     ensureReachOverlaySource();
 
-    if (!sc) {
+    if (!sc && !nacsOrigin) {
       if (selectedCampIdx < 0) emptyEl.classList.remove("hidden");
       else emptyEl.classList.add("hidden");
       activeEl.classList.add("hidden");
+      if (nacsLegendEl) nacsLegendEl.classList.add("hidden");
       if (map.getLayer("reach-overlay-layer")) {
         map.setLayoutProperty("reach-overlay-layer", "visibility", "none");
       }
@@ -468,16 +507,24 @@
       if (src) src.pause();
       updateFerryLayer(null, Infinity);
       updateSuperchargerLayer(null, Infinity);
-      updateNacsLayer(null, Infinity);
+      updateNacsLayer();
       updateDestRouteLayer(null, null);
       if (selectedCampIdx >= 0) updateCampCalc();
       return;
     }
 
-    emptyEl.classList.add("hidden");
-    activeEl.classList.remove("hidden");
+    if (sc) {
+      emptyEl.classList.add("hidden");
+      activeEl.classList.remove("hidden");
+    } else {
+      emptyEl.classList.remove("hidden");
+      activeEl.classList.add("hidden");
+    }
     if (ferryLegendEl) {
       ferryLegendEl.classList.toggle("hidden", !state.ferry);
+    }
+    if (nacsLegendEl) {
+      nacsLegendEl.classList.toggle("hidden", !nacsOrigin);
     }
     if (map.getLayer("reach-overlay-layer")) {
       map.setLayoutProperty("reach-overlay-layer", "visibility", "visible");
@@ -486,22 +533,37 @@
     const params = computeEnergyParams();
     const { budgetWh, winterMult } = params;
 
-    // 1. Run Dijkstra from selected Supercharger
-    runDijkstra(sc.node, false, params, goUsed, goParentNode, goParentEdge);
-    if (state.roundTrip) {
-      runDijkstra(sc.node, true, params, backUsed);
-      for (let i = 0; i < graph.nNodes; i++) {
-        if (goUsed[i] <= budgetWh && backUsed[i] <= budgetWh) {
-          goUsed[i] = goUsed[i] + backUsed[i];
-        } else {
-          goUsed[i] = Infinity;
+    // 1. Run Dijkstra for Supercharger (if selected) and/or 3rd-party NACS (if selected)
+    if (sc && !animateNacsOnly) {
+      runDijkstra(sc.node, false, params, goUsed, goParentNode, goParentEdge);
+      if (state.roundTrip) {
+        runDijkstra(sc.node, true, params, backUsed);
+        for (let i = 0; i < graph.nNodes; i++) {
+          if (goUsed[i] <= budgetWh && backUsed[i] <= budgetWh) {
+            goUsed[i] = goUsed[i] + backUsed[i];
+          } else {
+            goUsed[i] = Infinity;
+          }
+        }
+      }
+    }
+    if (nacsOrigin) {
+      runDijkstra(nacsOrigin.node, false, params, nacsUsed);
+      if (state.roundTrip) {
+        runDijkstra(nacsOrigin.node, true, params, backUsed);
+        for (let i = 0; i < graph.nNodes; i++) {
+          if (nacsUsed[i] <= budgetWh && backUsed[i] <= budgetWh) {
+            nacsUsed[i] = nacsUsed[i] + backUsed[i];
+          } else {
+            nacsUsed[i] = Infinity;
+          }
         }
       }
     }
 
-    // 2. Smoothly center camera and animate outward energy wave when clicking a Supercharger
+    // 2. Smoothly center camera and animate outward energy wave
     const offroadWhPerM = (state.whPerKm / 1000.0) * 1.12 * winterMult * (state.roundTrip ? 2.0 : 1.0);
-    if (pan) {
+    if (pan && sc) {
       map.easeTo({
         center: [sc.lon, sc.lat],
         duration: 500,
@@ -517,8 +579,9 @@
       const step = (now) => {
         const rawT = Math.min(1.0, (now - startMs) / durationMs);
         const eased = 1.0 - Math.pow(1.0 - rawT, 3);
-        paintReachPixels(budgetWh, offroadWhPerM, 0.06 + 0.94 * eased);
-        if (map.getLayer("sc-selected-halo")) {
+        const frac = 0.06 + 0.94 * eased;
+        paintReachPixels(budgetWh, offroadWhPerM, animateNacsOnly ? 1.0 : frac, frac);
+        if (!animateNacsOnly && map.getLayer("sc-selected-halo")) {
           map.setPaintProperty("sc-selected-halo", "circle-radius", 24 - 10 * eased);
         }
         if (rawT < 1.0) {
@@ -530,36 +593,36 @@
       };
       revealAnimId = requestAnimationFrame(step);
     } else {
-      paintReachPixels(budgetWh, offroadWhPerM, 1.0);
+      paintReachPixels(budgetWh, offroadWhPerM, 1.0, 1.0);
       refreshCanvasOverlayOnce();
     }
 
     // 3. Update Ferry, Supercharger & NACS layers and status metrics
-    updateFerryLayer(goUsed, budgetWh);
-    const reachableScCount = updateSuperchargerLayer(goUsed, budgetWh);
-    const reachableNacsCount = updateNacsLayer(goUsed, budgetWh);
-
-    document.getElementById("sc-name").textContent = sc.name;
-    const locParts = [sc.state, sc.city].filter(Boolean).join(" · ");
-    document.getElementById("sc-meta").textContent =
-      sc.type === "nacs"
-        ? `${sc.brand} · ${sc.kw || "?"} kW · ${sc.hours || "免转接"}`
-        : `${locParts ? locParts + " · " : ""}${sc.stalls || "?"} 桩 · ${sc.kw || "?"} kW`;
-    document.getElementById("metric-kwh").textContent = `${(budgetWh / 1000.0).toFixed(1)} kWh`;
-    const flatKm = budgetWh > 0 ? (budgetWh / (state.whPerKm * winterMult)) / (state.roundTrip ? 2.0 : 1.0) : 0;
-    document.getElementById("metric-range").textContent = `${Math.round(flatKm)} km`;
-    document.getElementById("metric-sc-count").textContent = `${reachableScCount} 座`;
-    const gauge = document.getElementById("soc-gauge");
-    if (gauge) {
-      gauge.style.setProperty("--soc-from", state.arrivePct + "%");
-      gauge.style.setProperty("--soc-to", state.departPct + "%");
-      document.getElementById("soc-label").textContent = `${state.departPct}% → ${state.arrivePct}%`;
-    }
-    if (selectedDest) {
-      evaluateDestination(selectedDest);
+    if (sc) {
+      updateFerryLayer(goUsed, budgetWh);
+      const reachableScCount = updateSuperchargerLayer(goUsed, budgetWh);
+      document.getElementById("sc-name").textContent = sc.name;
+      const locParts = [sc.state, sc.city].filter(Boolean).join(" · ");
+      document.getElementById("sc-meta").textContent =
+        `${locParts ? locParts + " · " : ""}${sc.stalls || "?"} 桩 · ${sc.kw || "?"} kW`;
+      document.getElementById("metric-kwh").textContent = `${(budgetWh / 1000.0).toFixed(1)} kWh`;
+      const flatKm = budgetWh > 0 ? (budgetWh / (state.whPerKm * winterMult)) / (state.roundTrip ? 2.0 : 1.0) : 0;
+      document.getElementById("metric-range").textContent = `${Math.round(flatKm)} km`;
+      document.getElementById("metric-sc-count").textContent = `${reachableScCount} 座`;
+      const gauge = document.getElementById("soc-gauge");
+      if (gauge) {
+        gauge.style.setProperty("--soc-from", state.arrivePct + "%");
+        gauge.style.setProperty("--soc-to", state.departPct + "%");
+        document.getElementById("soc-label").textContent = `${state.departPct}% → ${state.arrivePct}%`;
+      }
+      if (selectedDest) evaluateDestination(selectedDest);
+      else updateDestRouteLayer(null, null);
     } else {
+      updateFerryLayer(null, Infinity);
+      updateSuperchargerLayer(null, Infinity);
       updateDestRouteLayer(null, null);
     }
+    updateNacsLayer();
     if (selectedCampIdx >= 0) {
       updateCampCalc();
     }
@@ -653,6 +716,7 @@
         kw: n.kw,
         hours: n.hours || "",
         addr: n.addr || "",
+        status: idx === selectedNacsIdx ? 2 : 0,
       },
     }));
     src.setData({ type: "FeatureCollection", features });
@@ -964,7 +1028,6 @@
     map.on("click", "sc-hit", async (e) => {
       const f = e.features[0];
       selectedScIdx = f.properties.idx;
-      selectedNacsIdx = -1;
       if (dataReadyPromise) await dataReadyPromise;
       updateReachability({ animate: true, pan: true });
     });
@@ -981,15 +1044,19 @@
       map.getCanvas().style.cursor = "";
       hoverPopup.remove();
     });
-    map.on("click", "nacs-hit", (e) => {
+    map.on("click", "nacs-hit", async (e) => {
       if (map.queryRenderedFeatures(e.point, { layers: ["sc-hit"] }).length > 0) return;
       const p = e.features[0].properties;
+      selectedNacsIdx = (selectedNacsIdx === p.idx) ? -1 : p.idx;
+      if (dataReadyPromise) await dataReadyPromise;
+      updateReachability({ animate: selectedNacsIdx >= 0, pan: false, animateNacsOnly: selectedScIdx >= 0 });
       new maplibregl.Popup()
         .setLngLat(e.features[0].geometry.coordinates)
         .setHTML(
           `<strong>${p.name}</strong><br/>${p.brand}（免转接） · ${p.kw || "?"} kW` +
           (p.hours ? `<br/>营业时间：${p.hours}` : "") +
-          (p.addr ? `<br/>地址：${p.addr}` : "")
+          (p.addr ? `<br/>地址：${p.addr}` : "") +
+          `<br/><span style="color:#38bdf8">${selectedNacsIdx >= 0 ? "已叠加蓝色新增辐射范围（再点一次可取消）" : "已取消该第三方桩辐射范围"}</span>`
         )
         .addTo(map);
     });
@@ -2015,7 +2082,12 @@
     btnNacs.addEventListener("click", () => {
       showNacsPins = !showNacsPins;
       btnNacs.setAttribute("aria-pressed", String(showNacsPins));
-      updateNacsLayer();
+      if (!showNacsPins && selectedNacsIdx >= 0) {
+        selectedNacsIdx = -1;
+        updateReachability();
+      } else {
+        updateNacsLayer();
+      }
     });
 
     // Dedicated Camp View & Camp Map Bar bindings
