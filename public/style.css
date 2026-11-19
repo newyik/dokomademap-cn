@@ -1559,6 +1559,16 @@ input[type="range"]::-webkit-slider-thumb { width: 22px; height: 22px; }
     background: var(--text-3);
     opacity: 0.5;
   }
+  .status-card { transition: max-height 0.3s var(--ease); }
+  .status-card.peek { max-height: calc(86px + env(safe-area-inset-bottom)); overflow: hidden; cursor: pointer; }
+  .status-card.peek .status-empty .status-hint-sub,
+  .status-card.peek .hero-metric,
+  .status-card.peek .status-metrics,
+  .status-card.peek .dest-box,
+  .status-card.peek .legend,
+  .status-card.peek .ferry-legend,
+  .status-card.peek .nacs-legend,
+  .status-card.peek .purple-legend { display: none; }
   .hero-metric { margin: 12px 0 10px; padding: 12px; }
   .hero-value { font-size: 30px; }
 

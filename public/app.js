@@ -522,6 +522,8 @@
   function updateReachability(opts = {}) {
     if (!graph || !grid || !map) return;
     const { animate = false, pan = false, animateNacsOnly = false } = opts;
+    // 选了新的站点/车辆时，把收起的底部面板重新展开
+    if (animate) document.getElementById("status-card")?.classList.remove("peek");
 
     if (revealAnimId) {
       cancelAnimationFrame(revealAnimId);
@@ -2411,14 +2413,28 @@
       statusCardEl.addEventListener("touchend", (e) => {
         if (touchStartY !== null && e.changedTouches && e.changedTouches.length === 1) {
           const dy = e.changedTouches[0].clientY - touchStartY;
-          if (dy > 45 && carState.active && selectedScIdx < 0) {
+          const atTop = statusCardEl.scrollTop <= 2;
+          if (dy > 45 && atTop && carState.active && selectedScIdx < 0) {
             cardMinimized = true;
             statusCardEl.classList.add("hidden");
             setCarPillVisible(true);
+          } else if (dy > 45 && atTop && window.innerWidth <= 760) {
+            // 下滑：收起成一条，只留站名，把地图让出来
+            statusCardEl.classList.add("peek");
+            statusCardEl.scrollTop = 0;
+          } else if (dy < -45 && statusCardEl.classList.contains("peek")) {
+            // 上滑：重新展开
+            statusCardEl.classList.remove("peek");
           }
         }
         touchStartY = null;
       }, { passive: true });
+      // 收起状态下点一下也能展开
+      statusCardEl.addEventListener("click", (e) => {
+        if (statusCardEl.classList.contains("peek") && !e.target.closest("button")) {
+          statusCardEl.classList.remove("peek");
+        }
+      });
     }
 
     // NAS TeslaMate Car Sync Modal & Purple Reachability
