@@ -1649,3 +1649,41 @@ body.theme-light .pill-btn.ghost[aria-pressed="true"]:not(.purple-on) { color: #
 .brand { cursor: pointer; border-radius: 12px; -webkit-tap-highlight-color: transparent; }
 .brand:active .brand-mark { transform: scale(0.92); }
 .brand-mark { transition: transform 0.15s var(--ease); }
+
+/* 提示条 */
+.toast {
+  position: fixed;
+  left: 50%;
+  top: calc(118px + env(safe-area-inset-top));
+  z-index: 70;
+  max-width: min(92vw, 420px);
+  padding: 10px 16px;
+  border-radius: 14px;
+  background: rgba(20, 24, 32, 0.92);
+  color: #fff;
+  font-size: 13.5px;
+  line-height: 1.45;
+  text-align: center;
+  box-shadow: 0 10px 30px -8px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  opacity: 0;
+  pointer-events: none;
+  translate: -50% -6px;
+  transition: opacity 0.25s var(--ease), translate 0.25s var(--ease);
+}
+.toast.show { opacity: 1; translate: -50% 0; }
+@media (min-width: 761px) { .toast { top: 84px; } }
+
+/* 定位中：按钮转圈 */
+#btn-locate.busy svg { animation: spin 1s linear infinite; color: var(--blue); }
+
+/* 我的位置蓝点 */
+.me-dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #3e8bff;
+  border: 3px solid #fff;
+  box-shadow: 0 0 0 6px rgba(62, 139, 255, 0.25), 0 2px 6px rgba(0, 0, 0, 0.35);
+}

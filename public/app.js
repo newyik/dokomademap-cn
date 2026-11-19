@@ -2732,24 +2732,81 @@
     });
 
     // GPS locate nearest Supercharger
-    document.getElementById("btn-locate").addEventListener("click", () => {
-      if (!navigator.geolocation || !superchargers.length) return;
+    // 屏幕上方的小提示条
+    let toastTimer = null;
+    const showToast = (msg, ms = 2600) => {
+      let el = document.getElementById("toast");
+      if (!el) {
+        el = document.createElement("div");
+        el.id = "toast";
+        el.className = "toast";
+        el.setAttribute("role", "status");
+        document.body.appendChild(el);
+      }
+      el.textContent = msg;
+      el.classList.add("show");
+      clearTimeout(toastTimer);
+      if (ms > 0) toastTimer = setTimeout(() => el.classList.remove("show"), ms);
+    };
+
+    let meMarker = null;
+    const btnLocate = document.getElementById("btn-locate");
+    btnLocate.addEventListener("click", () => {
+      if (!navigator.geolocation) {
+        showToast("这个浏览器不支持定位");
+        return;
+      }
+      if (!window.isSecureContext) {
+        showToast("需要用 https 打开页面才能定位");
+        return;
+      }
+      if (btnLocate.classList.contains("busy")) return;
+      btnLocate.classList.add("busy");
+      showToast("正在获取你的位置…", 0);
       navigator.geolocation.getCurrentPosition(
         async (pos) => {
+          btnLocate.classList.remove("busy");
           const { latitude, longitude } = pos.coords;
+          // 地图上标出我的位置
+          if (map) {
+            if (!meMarker) {
+              const dot = document.createElement("div");
+              dot.className = "me-dot";
+              meMarker = new maplibregl.Marker({ element: dot });
+            }
+            meMarker.setLngLat([longitude, latitude]).addTo(map);
+            map.easeTo({ center: [longitude, latitude], zoom: Math.max(map.getZoom(), 8.5), duration: 700 });
+          }
+          if (dataReadyPromise) await dataReadyPromise;
+          if (!superchargers.length) {
+            showToast("已定位，超充数据还在加载");
+            return;
+          }
           let bestIdx = 0;
           let bestD = Infinity;
           for (let i = 0; i < superchargers.length; i++) {
             const d = haversineKm(latitude, longitude, superchargers[i].lat, superchargers[i].lon);
             if (d < bestD) { bestD = d; bestIdx = i; }
           }
-          if (map) map.easeTo({ center: [longitude, latitude], zoom: Math.max(map.getZoom(), 8.5), duration: 600 });
+          if (bestD > 600) {
+            showToast("你现在不在日本，已标出位置");
+            return;
+          }
+          showToast(`最近的超充站约 ${Math.round(bestD)} km`);
           selectedScIdx = bestIdx;
-          if (dataReadyPromise) await dataReadyPromise;
           updateReachability({ animate: true, pan: false });
         },
-        () => {},
-        { enableHighAccuracy: false, timeout: 6000 }
+        (err) => {
+          btnLocate.classList.remove("busy");
+          if (err.code === 1) {
+            showToast("没有定位权限：请在手机「设置 → 隐私 → 定位服务」里允许这个浏览器使用定位", 6000);
+          } else if (err.code === 3) {
+            showToast("定位超时，请到室外或稍后再试", 4000);
+          } else {
+            showToast("暂时拿不到位置，请稍后再试", 4000);
+          }
+        },
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 }
       );
     });
 
