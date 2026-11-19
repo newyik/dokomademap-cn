@@ -2768,6 +2768,22 @@
       btnDrawer.setAttribute("aria-expanded", "false");
     };
     document.getElementById("btn-drawer-done").addEventListener("click", closeDrawer);
+    // 点左上角闪电图标/标题：回到主界面（关掉面板和弹窗，切回超充地图，镜头回到全日本）
+    const brandEl = document.querySelector(".brand");
+    brandEl.setAttribute("role", "button");
+    brandEl.setAttribute("tabindex", "0");
+    brandEl.setAttribute("title", "回到主界面");
+    const goHome = () => {
+      closeDrawer();
+      document.querySelectorAll(".modal-backdrop:not(.hidden)").forEach((m) => m.classList.add("hidden"));
+      const tabMap = document.getElementById("tab-map");
+      if (!tabMap.classList.contains("active")) tabMap.click();
+      document.getElementById("camp-view")?.classList.add("hidden");
+      document.getElementById("status-card")?.classList.remove("peek");
+      if (map) map.flyTo({ center: [137.8, 36.2], zoom: window.innerWidth <= 760 ? 4.6 : 5.2, duration: 900 });
+    };
+    brandEl.addEventListener("click", goHome);
+    brandEl.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); goHome(); } });
     // 手机上点地图空白处自动收起参数面板，避免挡住地图
     document.getElementById("map").addEventListener("pointerdown", () => {
       if (window.innerWidth <= 760 && !drawer.classList.contains("collapsed")) closeDrawer();

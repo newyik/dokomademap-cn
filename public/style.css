@@ -1645,3 +1645,7 @@ body.theme-light .pill-btn.ghost[aria-pressed="true"]:not(.purple-on) { color: #
     cursor: pointer;
   }
 }
+
+.brand { cursor: pointer; border-radius: 12px; -webkit-tap-highlight-color: transparent; }
+.brand:active .brand-mark { transform: scale(0.92); }
+.brand-mark { transition: transform 0.15s var(--ease); }
