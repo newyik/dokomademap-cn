@@ -1856,28 +1856,6 @@
       map.setPaintProperty("nacs-circles", "circle-opacity", isCamp ? 0.2 : 1.0);
       map.setPaintProperty("nacs-circles", "circle-stroke-opacity", isCamp ? 0.25 : 1.0);
     }
-    map.addSource("car-pin", {
-      type: "geojson",
-      data: { type: "FeatureCollection", features: [] },
-    });
-    map.addLayer({
-      id: "car-pin-halo",
-      type: "circle",
-      source: "car-pin",
-      paint: { "circle-radius": 16, "circle-color": "rgba(168, 85, 247, 0.28)" },
-    });
-    map.addLayer({
-      id: "car-pin-circle",
-      type: "circle",
-      source: "car-pin",
-      paint: {
-        "circle-radius": 8,
-        "circle-color": "#a855f7",
-        "circle-stroke-width": 2.5,
-        "circle-stroke-color": "#ffffff",
-      },
-    });
-
     updateCampLayer();
   }
 
@@ -2239,29 +2217,7 @@
       document.querySelectorAll("#cv-filters .cv-chip, #cmb-filters .cv-chip").forEach((c) => {
         c.classList.toggle("active", c.dataset.filter === cvFilter);
       });
-      map.addSource("car-pin", {
-      type: "geojson",
-      data: { type: "FeatureCollection", features: [] },
-    });
-    map.addLayer({
-      id: "car-pin-halo",
-      type: "circle",
-      source: "car-pin",
-      paint: { "circle-radius": 16, "circle-color": "rgba(168, 85, 247, 0.28)" },
-    });
-    map.addLayer({
-      id: "car-pin-circle",
-      type: "circle",
-      source: "car-pin",
-      paint: {
-        "circle-radius": 8,
-        "circle-color": "#a855f7",
-        "circle-stroke-width": 2.5,
-        "circle-stroke-color": "#ffffff",
-      },
-    });
-
-    updateCampLayer();
+      updateCampLayer();
       renderCampViewList();
     };
     document.querySelectorAll("#cv-filters .cv-chip, #cmb-filters .cv-chip").forEach((chip) => {
