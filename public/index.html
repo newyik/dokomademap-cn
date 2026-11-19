@@ -115,6 +115,45 @@
         <span><i class="line-std"></i>普通汽车轮渡</span>
       </div>
     </div>
+
+    <!-- Car Camping (车中泊) Panel -->
+    <div id="camp-panel" class="camp-panel hidden">
+      <div class="camp-header">
+        <div>
+          <span id="camp-kind-badge" class="camp-badge">道の駅</span>
+          <div id="camp-name" class="camp-name">—</div>
+          <div id="camp-meta" class="camp-meta">—</div>
+        </div>
+        <button id="btn-close-camp" class="icon-btn sm" type="button" title="关闭车中泊详情" aria-label="关闭">
+          <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div id="camp-tags" class="camp-tags"></div>
+      <div class="camp-calc-box">
+        <div class="camp-calc-head">
+          <span>Model 3 露营模式 (Camp Mode)</span>
+          <strong id="camp-kwh-total">—</strong>
+        </div>
+        <div class="camp-sliders">
+          <label class="camp-slider-row">
+            <span>夜间气温 <small id="camp-temp-src"></small></span>
+            <strong id="val-camp-temp">8°C</strong>
+          </label>
+          <input id="slider-camp-temp" type="range" min="-15" max="35" step="1" value="8" />
+          <label class="camp-slider-row">
+            <span>过夜时长</span>
+            <strong id="val-camp-hours">8 小时</strong>
+          </label>
+          <input id="slider-camp-hours" type="range" min="4" max="14" step="1" value="8" />
+          <label class="camp-extra-row">
+            <input id="chk-camp-extra" type="checkbox" />
+            <span>含哨兵模式 / 车载冰箱等附加用电 (+0.22 kW)</span>
+          </label>
+        </div>
+        <div id="camp-trip-summary" class="camp-trip-summary"></div>
+      </div>
+      <div class="camp-tip">日本礼仪提示：道の駅与 SA/PA 允许夜间在车内休息睡眠，但请勿在车外搭帐篷、摆放桌椅或使用明火。</div>
+    </div>
   </aside>
 
   <!-- Settings Drawer -->
@@ -183,6 +222,10 @@
       <label id="ferry-charge-row" class="switch-row indent">
         <span class="switch-text"><b>船上补电</b><small>支持航线按约 3 kW 计算</small></span>
         <input id="chk-ferry-charge" type="checkbox" checked /><span class="switch" aria-hidden="true"></span>
+      </label>
+      <label class="switch-row">
+        <span class="switch-text"><b>车中泊推荐点</b><small>显示 道の駅 / RV 营地 / SA</small></span>
+        <input id="chk-camp" type="checkbox" checked /><span class="switch" aria-hidden="true"></span>
       </label>
     </div>
 

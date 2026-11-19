@@ -10,6 +10,7 @@
     winter: false,
     ferry: true,
     ferryCharge: true,
+    showCamp: true,
     fontScale: 1,
     theme: "auto", // auto | dark | light
   };
@@ -33,7 +34,12 @@
   let grid = null;
   let superchargers = [];
   let ferries = [];
+  let campSpots = [];
   let selectedScIdx = -1;
+  let selectedCampIdx = -1;
+  let campTempC = 8;
+  let campHours = 8;
+  let campExtra = false;
   let currentTheme = resolveTheme(state.theme);
 
   // Offscreen canvas for Mercator land-masked reachability overlay
@@ -426,7 +432,8 @@
     const ferryLegendEl = document.getElementById("ferry-legend");
 
     if (selectedScIdx < 0) {
-      emptyEl.classList.remove("hidden");
+      if (selectedCampIdx < 0) emptyEl.classList.remove("hidden");
+      else emptyEl.classList.add("hidden");
       activeEl.classList.add("hidden");
       if (map.getLayer("reach-overlay-layer")) {
         map.setLayoutProperty("reach-overlay-layer", "visibility", "none");
@@ -436,6 +443,7 @@
       updateFerryLayer(null, Infinity);
       updateSuperchargerLayer(null, Infinity);
       updateDestRouteLayer(null, null);
+      if (selectedCampIdx >= 0) updateCampCalc();
       return;
     }
 
@@ -522,6 +530,9 @@
       evaluateDestination(selectedDest);
     } else {
       updateDestRouteLayer(null, null);
+    }
+    if (selectedCampIdx >= 0) {
+      updateCampCalc();
     }
   }
 
@@ -773,6 +784,61 @@
       },
     });
 
+    // Car-camping spots (道の駅 / RV 营地 / SA)
+    map.addSource("camp-spots", {
+      type: "geojson",
+      data: { type: "FeatureCollection", features: [] },
+    });
+    map.addLayer(
+      {
+        id: "camp-circles",
+        type: "circle",
+        source: "camp-spots",
+        minzoom: 5.8,
+        paint: {
+          "circle-radius": [
+            "interpolate",
+            ["linear"],
+            ["zoom"],
+            6, 2.8,
+            9, 4.5,
+            12, 6.5,
+          ],
+          "circle-color": [
+            "match",
+            ["get", "kind"],
+            "rv", "#14b8a6",
+            "sa", "#60a5fa",
+            "#f59e0b",
+          ],
+          "circle-opacity": [
+            "interpolate",
+            ["linear"],
+            ["zoom"],
+            5.8, 0.5,
+            7.5, 0.9,
+          ],
+          "circle-stroke-width": 1,
+          "circle-stroke-color": "rgba(255,255,255,0.7)",
+        },
+      },
+      "sc-selected-halo"
+    );
+    map.addLayer(
+      {
+        id: "camp-hit",
+        type: "circle",
+        source: "camp-spots",
+        minzoom: 5.8,
+        paint: {
+          "circle-radius": 11,
+          "circle-opacity": 0,
+        },
+      },
+      "sc-selected-halo"
+    );
+
+    updateCampLayer();
     updateSuperchargerLayer(null, Infinity);
     if (graph && grid) updateReachability();
   }
@@ -837,6 +903,25 @@
     map.on("mouseenter", "ferry-routes-ev", onFerryEnter);
     map.on("mouseleave", "ferry-routes-ev", onFerryLeave);
     map.on("click", "ferry-routes-ev", onFerryClick);
+
+    map.on("mouseenter", "camp-hit", (e) => {
+      if (map.queryRenderedFeatures(e.point, { layers: ["sc-hit"] }).length > 0) return;
+      map.getCanvas().style.cursor = "pointer";
+      const p = e.features[0].properties;
+      const kLabel = p.kind === "rv" ? "RV 营地" : p.kind === "sa" ? "高速 SA" : "道の駅";
+      hoverPopup
+        .setLngLat(e.features[0].geometry.coordinates)
+        .setHTML(`<strong>${p.name}</strong><br/>${kLabel} · 海拔 ${p.elev} m · 距最近超充 ${p.sc_km} km`)
+        .addTo(map);
+    });
+    map.on("mouseleave", "camp-hit", () => {
+      map.getCanvas().style.cursor = "";
+      hoverPopup.remove();
+    });
+    map.on("click", "camp-hit", (e) => {
+      if (map.queryRenderedFeatures(e.point, { layers: ["sc-hit"] }).length > 0) return;
+      selectCampSpot(e.features[0].properties.idx, false);
+    });
   }
 
   // ---------- Curated Japan Cities & Landmarks (Instant Offline Search) ----------
@@ -1136,6 +1221,43 @@
         });
       });
     }
+
+    // Recommend up to 3 nearby car-camping spots (道の駅 / RV / SA) near destination
+    if (campSpots.length > 0) {
+      const nearCamps = campSpots
+        .map((c, idx) => ({
+          idx,
+          c,
+          d: haversineKm(c.lat, c.lon, dest.lat, dest.lon),
+        }))
+        .filter((x) => x.d <= 35.0)
+        .sort((a, b) => {
+          const prio = (k) => (k === "rv" ? 0 : k === "michi" ? 1 : 2);
+          return (a.d + prio(a.c.kind) * 2.5) - (b.d + prio(b.c.kind) * 2.5);
+        })
+        .slice(0, 3);
+
+      if (nearCamps.length > 0) {
+        const listDiv = document.createElement("div");
+        listDiv.className = "dest-camp-list";
+        listDiv.innerHTML =
+          `<div class="dest-camp-title">终点附近车中泊推荐（点击测算过夜耗电）：</div>` +
+          nearCamps
+            .map((x) => {
+              const badge = x.c.kind === "rv" ? "RV" : x.c.kind === "sa" ? "SA" : "道の駅";
+              const extra = [x.c.p ? "电源" : "", x.c.o ? "温泉" : ""].filter(Boolean).join("/");
+              return `<button class="dest-camp-btn" type="button" data-camp-idx="${x.idx}"><span>[${badge}] ${x.c.name}${extra ? " · " + extra : ""}</span><small>${x.d.toFixed(1)} km</small></button>`;
+            })
+            .join("");
+        resEl.appendChild(listDiv);
+        listDiv.querySelectorAll(".dest-camp-btn").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            selectCampSpot(Number(btn.dataset.campIdx), true);
+          });
+        });
+      }
+    }
+
     resEl.classList.remove("hidden");
   }
 
@@ -1246,6 +1368,146 @@
     return out.buffer;
   }
 
+  function updateCampLayer() {
+    if (!map) return;
+    const src = map.getSource("camp-spots");
+    if (!src) return;
+    if (!state.showCamp || !campSpots.length) {
+      src.setData({ type: "FeatureCollection", features: [] });
+      return;
+    }
+    const features = campSpots.map((c, idx) => ({
+      type: "Feature",
+      geometry: { type: "Point", coordinates: [c.lon, c.lat] },
+      properties: {
+        idx,
+        name: c.name,
+        kind: c.kind,
+        elev: c.elev,
+        sc_km: c.sc_km,
+      },
+    }));
+    src.setData({ type: "FeatureCollection", features });
+  }
+
+  function estimateCampKw(tempC, extra) {
+    let kw = 0.28; // Model 3 Heat Pump standby + cabin fan
+    if (tempC < 18) {
+      kw += 0.065 * (18 - tempC);
+    } else if (tempC > 24) {
+      kw += 0.08 * (tempC - 24);
+    }
+    if (extra) kw += 0.22;
+    return kw;
+  }
+
+  function updateCampCalc() {
+    if (selectedCampIdx < 0 || !campSpots[selectedCampIdx]) return;
+    const spot = campSpots[selectedCampIdx];
+    const params = computeEnergyParams();
+    const { usableFullWh, budgetWh, winterMult } = params;
+
+    const kw = estimateCampKw(campTempC, campExtra);
+    const totalKwh = kw * campHours;
+    const campPct = Math.round((totalKwh / (usableFullWh / 1000.0)) * 100);
+
+    document.getElementById("val-camp-temp").textContent = `${campTempC}°C`;
+    document.getElementById("val-camp-hours").textContent = `${campHours} 小时`;
+    document.getElementById("camp-kwh-total").textContent = `${totalKwh.toFixed(1)} kWh (-${campPct}%)`;
+
+    const summaryEl = document.getElementById("camp-trip-summary");
+    const nearestSc = superchargers[spot.sc_idx];
+    const nearestScName = nearestSc ? nearestSc.name : "附近超充";
+
+    if (selectedScIdx >= 0 && graph && goUsed) {
+      const usedToSpot = goUsed[spot.node];
+      if (usedToSpot <= budgetWh) {
+        const arrWh = usableFullWh * (state.departPct / 100.0) - usedToSpot;
+        const arrPct = Math.max(0, Math.min(100, Math.round((arrWh / usableFullWh) * 100)));
+        const morningWh = arrWh - totalKwh * 1000.0;
+        const morningPct = Math.round((morningWh / usableFullWh) * 100);
+        const toScWh = spot.sc_km * state.whPerKm * winterMult * 1.15;
+        const afterScPct = Math.round(((morningWh - toScWh) / usableFullWh) * 100);
+
+        if (morningPct <= 0) {
+          summaryEl.innerHTML =
+            `开到该营地约剩 <b>${arrPct}%</b>；过夜露营消耗 <b>-${campPct}%</b> 后电量将耗尽，请先补电再过夜。`;
+        } else if (afterScPct >= 5) {
+          summaryEl.innerHTML =
+            `开到这里约剩 <b>${arrPct}%</b> → 过夜后清晨剩 <b style="color:#4ade80">${morningPct}%</b><br/>` +
+            `✓ 足够次日开往 <b>${nearestScName}</b>（约 ${spot.sc_km} km，到达约剩 ${afterScPct}%）`;
+        } else {
+          summaryEl.innerHTML =
+            `开到这里约剩 <b>${arrPct}%</b> → 过夜后清晨仅剩 <b style="color:#fbbf24">${morningPct}%</b><br/>` +
+            `⚠️ 次日前往 <b>${nearestScName}</b>（${spot.sc_km} km）余量偏紧，建议出发前多充一些。`;
+        }
+      } else {
+        summaryEl.innerHTML =
+          `从当前超充出发单次无法直达该营地；建议先开到 <b>${nearestScName}</b>（距此 ${spot.sc_km} km）补电后再前往过夜。`;
+      }
+    } else {
+      summaryEl.innerHTML =
+        `约每小时耗电 <b>${kw.toFixed(2)} kW</b>；最近超充为 <b>${nearestScName}</b>（距此 ${spot.sc_km} km）。点选任意超充站可联动测算往返余量。`;
+    }
+  }
+
+  async function selectCampSpot(idx, panToSpot = true) {
+    if (idx < 0 || !campSpots[idx]) return;
+    selectedCampIdx = idx;
+    const spot = campSpots[idx];
+
+    if (selectedScIdx < 0) {
+      document.getElementById("status-empty").classList.add("hidden");
+    }
+    const panel = document.getElementById("camp-panel");
+    panel.classList.remove("hidden");
+
+    const badgeEl = document.getElementById("camp-kind-badge");
+    badgeEl.className = `camp-badge ${spot.kind === "rv" ? "rv" : spot.kind === "sa" ? "sa" : ""}`;
+    badgeEl.textContent = spot.kind === "rv" ? "RV 营地" : spot.kind === "sa" ? "高速 SA" : "道の駅";
+
+    document.getElementById("camp-name").textContent = spot.name;
+    document.getElementById("camp-meta").textContent = `海拔 ${spot.elev} m · 距最近超充 ${spot.sc_km} km`;
+
+    const tags = [];
+    if (spot.t) tags.push("🚻 24h厕所");
+    if (spot.p) tags.push("🔌 外部电源");
+    if (spot.o) tags.push("♨️ 附近温泉");
+    if (spot.s) tags.push("🚿 淋浴");
+    if (!tags.length) tags.push("🅿️ 夜间停靠休息");
+    document.getElementById("camp-tags").innerHTML = tags.map((t) => `<span class="camp-tag">${t}</span>`).join("");
+
+    // Fallback temperature estimate by elevation before live weather returns
+    campTempC = Math.max(-12, Math.min(28, Math.round(10 - spot.elev * 0.006)));
+    document.getElementById("slider-camp-temp").value = campTempC;
+    document.getElementById("camp-temp-src").textContent = "(获取实时预报中…)";
+    updateCampCalc();
+
+    if (panToSpot && map) {
+      map.easeTo({ center: [spot.lon, spot.lat], zoom: Math.max(map.getZoom(), 9.2), duration: 550 });
+    }
+
+    // Fetch live tonight's minimum temperature from Open-Meteo (JMA Japan data)
+    try {
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${spot.lat}&longitude=${spot.lon}&daily=temperature_2m_min&timezone=Asia%2FTokyo&forecast_days=2`;
+      const resp = await fetch(url);
+      if (resp.ok && selectedCampIdx === idx) {
+        const w = await resp.json();
+        const tMin = w?.daily?.temperature_2m_min?.[0];
+        if (typeof tMin === "number") {
+          campTempC = Math.max(-15, Math.min(35, Math.round(tMin)));
+          document.getElementById("slider-camp-temp").value = campTempC;
+          document.getElementById("camp-temp-src").textContent = "(今夜 JMA 最低温)";
+          updateCampCalc();
+          return;
+        }
+      }
+    } catch (_) {}
+    if (selectedCampIdx === idx) {
+      document.getElementById("camp-temp-src").textContent = "(按海拔估算)";
+    }
+  }
+
   function bindUI() {
     const sWh = document.getElementById("slider-wh");
     const sFull = document.getElementById("slider-full");
@@ -1261,6 +1523,7 @@
     const chkWin = document.getElementById("chk-winter");
     const chkFer = document.getElementById("chk-ferry");
     const chkFerChg = document.getElementById("chk-ferry-charge");
+    const chkCamp = document.getElementById("chk-camp");
     const ferChgRow = document.getElementById("ferry-charge-row");
 
     const paintFill = (el) => {
@@ -1297,6 +1560,7 @@
       chkWin.checked = state.winter;
       chkFer.checked = state.ferry;
       chkFerChg.checked = state.ferryCharge;
+      chkCamp.checked = state.showCamp;
       ferChgRow.classList.toggle("disabled", !state.ferry);
       [sWh, sFull, sDep, sArr].forEach(paintFill);
       syncPresetPills();
@@ -1375,6 +1639,31 @@
       state.ferryCharge = chkFerChg.checked;
       saveState();
       updateReachability();
+    });
+
+    chkCamp.addEventListener("change", () => {
+      state.showCamp = chkCamp.checked;
+      saveState();
+      updateCampLayer();
+    });
+
+    document.getElementById("btn-close-camp").addEventListener("click", () => {
+      selectedCampIdx = -1;
+      document.getElementById("camp-panel").classList.add("hidden");
+      if (selectedScIdx < 0) document.getElementById("status-empty").classList.remove("hidden");
+    });
+    document.getElementById("slider-camp-temp").addEventListener("input", (e) => {
+      campTempC = Number(e.target.value);
+      document.getElementById("camp-temp-src").textContent = "(手动设定)";
+      updateCampCalc();
+    });
+    document.getElementById("slider-camp-hours").addEventListener("input", (e) => {
+      campHours = Number(e.target.value);
+      updateCampCalc();
+    });
+    document.getElementById("chk-camp-extra").addEventListener("change", (e) => {
+      campExtra = e.target.checked;
+      updateCampCalc();
     });
 
     document.getElementById("btn-reset-defaults").addEventListener("click", () => {
@@ -1568,12 +1857,15 @@
         fetchBinaryCached("data/graph.bin", "graph_v2", 22656497, (b) => { bytesG = b; updateProg(); }),
         fetchBinaryCached("data/landgrid.bin", "landgrid_v2", 1321542, (b) => { bytesL = b; updateProg(); }),
         fetch("data/ferries.json").then((r) => r.json()),
-      ]).then(([gBuf, lBuf, ferryData]) => {
+        fetch("data/camp_spots.json").then((r) => r.json()).catch(() => []),
+      ]).then(([gBuf, lBuf, ferryData, campData]) => {
         graph = parseGraph(gBuf);
         grid = parseLandGrid(lBuf);
         ferries = ferryData;
+        campSpots = campData;
         progressPill.classList.add("hidden");
         ensureReachOverlaySource();
+        updateCampLayer();
         if (selectedScIdx >= 0) updateReachability({ animate: true, pan: false });
       }).catch((err) => {
         progressText.textContent = "路网加载失败";

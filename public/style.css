@@ -176,6 +176,9 @@ body.theme-light .vignette { display: none; }
   left: 14px;
   z-index: 18;
   width: 330px;
+  max-height: calc(100vh - 104px);
+  overflow-y: auto;
+  scrollbar-width: thin;
   padding: 14px;
   border-radius: var(--radius);
   animation: rise 0.5s var(--ease) both;
@@ -791,6 +794,140 @@ body:not(.theme-light) .maplibregl-ctrl-attrib-button { filter: invert(1); }
 }
 .dest-relay-btn:hover { background: rgba(62, 139, 255, 0.28); }
 
+/* ---------- Car Camping (车中泊) Panel ---------- */
+.camp-panel {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--glass-border);
+  animation: fadeIn 0.25s var(--ease) both;
+}
+#status-empty + #status-active.hidden + .camp-panel,
+#status-active.hidden + .camp-panel {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+.camp-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+}
+.camp-badge {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #fbbf24;
+  background: rgba(245, 158, 11, 0.16);
+}
+.camp-badge.rv { color: #2dd4bf; background: rgba(20, 184, 166, 0.18); }
+.camp-badge.sa { color: #60a5fa; background: rgba(59, 130, 246, 0.18); }
+.camp-name {
+  margin-top: 4px;
+  font-weight: 700;
+  font-size: calc(14px * var(--font-scale));
+}
+.camp-meta {
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+.camp-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 8px 0 10px;
+}
+.camp-tag {
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: var(--sub);
+  color: var(--text-2);
+  border: 1px solid var(--glass-border);
+}
+.camp-calc-box {
+  background: var(--sub);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  padding: 10px 11px;
+}
+.camp-calc-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+.camp-calc-head strong {
+  color: #fbbf24;
+  font-size: 13px;
+}
+.camp-slider-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11.5px;
+  color: var(--text-2);
+  margin: 6px 0 3px;
+}
+.camp-slider-row small {
+  color: var(--text-3);
+  font-size: 10.5px;
+}
+.camp-extra-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 11.5px;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.camp-trip-summary {
+  margin-top: 9px;
+  padding-top: 8px;
+  border-top: 1px solid var(--glass-border);
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--text-2);
+}
+.camp-tip {
+  margin-top: 8px;
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: var(--text-3);
+}
+.dest-camp-list {
+  margin-top: 7px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--glass-border);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.dest-camp-title {
+  font-size: 11px;
+  color: var(--text-2);
+  font-weight: 600;
+}
+.dest-camp-btn {
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  background: rgba(245, 158, 11, 0.1);
+  color: var(--text);
+  border-radius: 7px;
+  padding: 4px 8px;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+}
+.dest-camp-btn:hover { background: rgba(245, 158, 11, 0.22); }
+
 /* ---------- Layout fixes: controls bottom-left, compact drawer ---------- */
 .maplibregl-ctrl-bottom-left { left: 8px; bottom: 8px; }
 .car-silhouette { height: 34px; }
@@ -800,6 +937,7 @@ body:not(.theme-light) .maplibregl-ctrl-attrib-button { filter: invert(1); }
 @media (max-width: 720px) {
   .maplibregl-ctrl-bottom-left .maplibregl-ctrl-group { display: none; }
   .maplibregl-ctrl-bottom-left { bottom: auto; top: 72px; }
+  .status-card { max-height: 46vh; }
   .drawer { max-height: calc(100dvh - 165px); }
   .car-silhouette { display: none; }
 }
