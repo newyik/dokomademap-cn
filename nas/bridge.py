@@ -101,7 +101,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
-        if self.path.split("?")[0] != "/status":
+        if self.path.split("?")[0] not in ("/status", "/tesla/status"):
             self.send_response(404)
             self._send_cors()
             self.end_headers()
