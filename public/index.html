@@ -29,6 +29,11 @@
       </div>
     </div>
 
+    <div class="mode-tabs" role="tablist" aria-label="功能切换">
+      <button id="tab-map" class="mode-tab active" type="button" role="tab" aria-selected="true">⚡ 超充地图</button>
+      <button id="tab-camp" class="mode-tab" type="button" role="tab" aria-selected="false">⛺ 车中泊</button>
+    </div>
+
     <div id="data-progress-pill" class="progress-pill hidden">
       <span class="progress-dot"></span>
       <span id="data-progress-text">正在准备路网…</span>
@@ -155,6 +160,115 @@
       <div class="camp-tip">日本礼仪提示：道の駅与 SA/PA 允许夜间在车内休息睡眠，但请勿在车外搭帐篷、摆放桌椅或使用明火。</div>
     </div>
   </aside>
+
+  <!-- Dedicated Car Camping (车中泊) Full View -->
+  <main id="camp-view" class="camp-view hidden" aria-label="车中泊专属界面">
+    <div class="camp-view-inner">
+      <!-- Left: Spot Search & Recommendations -->
+      <section class="camp-col-left glass">
+        <div class="cv-head">
+          <h2>日本车中泊地点推荐</h2>
+          <button id="btn-cv-gps" class="pill-btn sm" type="button">附近推荐</button>
+        </div>
+        <form id="cv-search-form" class="dest-input-row" autocomplete="off">
+          <input id="cv-search-input" type="text" placeholder="搜索城市/地名/道の駅（如：富士山、箱根、札幌）" />
+          <button class="dest-go" type="submit">搜索</button>
+        </form>
+        <div id="cv-filters" class="cv-filters">
+          <button class="cv-chip active" type="button" data-filter="all">全部</button>
+          <button class="cv-chip" type="button" data-filter="michi">道の駅</button>
+          <button class="cv-chip" type="button" data-filter="rv">RV 公园</button>
+          <button class="cv-chip" type="button" data-filter="sa">高速 SA</button>
+          <button class="cv-chip" type="button" data-filter="onsen">♨️ 温泉</button>
+          <button class="cv-chip" type="button" data-filter="power">🔌 电源</button>
+        </div>
+        <div id="cv-list-meta" class="cv-list-meta">正在加载推荐点位…</div>
+        <div id="cv-spot-list" class="cv-spot-list"></div>
+      </section>
+
+      <!-- Right: Dedicated Camp Mode Time & Power Calculator -->
+      <section class="camp-col-right glass">
+        <div id="cv-detail-empty" class="cv-detail-empty">
+          <div class="cv-empty-icon">⛺</div>
+          <h3>选择一个车中泊地点</h3>
+          <p>在左侧挑选或搜索日本「道の駅」、RV 公园或高速 SA，即可获取今夜日本气象厅（JMA）最低气温，并按你的入睡/起床时间精确测算 Model 3 露营模式耗电。</p>
+        </div>
+
+        <div id="cv-detail-active" class="hidden">
+          <div class="cv-spot-header">
+            <div>
+              <span id="cv-badge" class="camp-badge">道の駅</span>
+              <h3 id="cv-spot-name" class="cv-spot-name">—</h3>
+              <div id="cv-spot-meta" class="camp-meta">—</div>
+            </div>
+            <button id="btn-cv-show-map" class="pill-btn sm" type="button">在地图中查看</button>
+          </div>
+          <div id="cv-spot-tags" class="camp-tags"></div>
+
+          <div class="cv-result-hero">
+            <div>
+              <span class="hero-label">预计过夜总耗电</span>
+              <div id="cv-kwh-big" class="cv-kwh-big">—</div>
+            </div>
+            <div class="cv-power-breakdown">
+              <div><span>平均功率</span><b id="cv-avg-kw">—</b></div>
+              <div><span>露营时长</span><b id="cv-dur-text">—</b></div>
+            </div>
+          </div>
+
+          <div class="cv-time-grid">
+            <label class="cv-time-field">
+              <span>入睡时间</span>
+              <input id="cv-sleep-start" type="time" value="22:30" />
+            </label>
+            <label class="cv-time-field">
+              <span>起床时间</span>
+              <input id="cv-sleep-end" type="time" value="07:00" />
+            </label>
+            <label class="cv-time-field">
+              <span>车内设定温度</span>
+              <select id="cv-cabin-temp">
+                <option value="18">18°C（省电）</option>
+                <option value="20">20°C（舒适）</option>
+                <option value="21" selected>21°C（标准）</option>
+                <option value="23">23°C（温暖）</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="control-group">
+            <div class="control-label-row">
+              <label for="cv-out-temp">夜间车外气温 <small id="cv-temp-src"></small></label>
+              <span id="cv-val-temp" class="control-value">6°C</span>
+            </div>
+            <input id="cv-out-temp" type="range" min="-15" max="35" step="1" value="6" />
+          </div>
+
+          <div class="control-group">
+            <div class="control-label-row">
+              <label for="cv-arr-soc">到达营地时电量</label>
+              <span id="cv-val-soc" class="control-value">60%</span>
+            </div>
+            <input id="cv-arr-soc" type="range" min="15" max="100" step="5" value="60" />
+          </div>
+
+          <div class="cv-extras">
+            <label class="switch-row">
+              <span class="switch-text"><b>开启哨兵模式</b><small>约 +0.25 kW 持续耗电</small></span>
+              <input id="cv-chk-sentry" type="checkbox" /><span class="switch" aria-hidden="true"></span>
+            </label>
+            <label class="switch-row">
+              <span class="switch-text"><b>车载冰箱 / 设备用电</b><small>约 +0.12 kW</small></span>
+              <input id="cv-chk-fridge" type="checkbox" /><span class="switch" aria-hidden="true"></span>
+            </label>
+          </div>
+
+          <div id="cv-morning-box" class="cv-morning-box"></div>
+          <div class="camp-tip">日本车中泊礼仪：道の駅与高速 SA/PA 允许夜间在车内休息睡眠，但请勿在车外搭帐篷、摆放桌椅或使用明火；若需外接电源与排污，请选择 RV 公园或付费露营场。</div>
+        </div>
+      </section>
+    </div>
+  </main>
 
   <!-- Settings Drawer -->
   <aside id="drawer" class="drawer glass">

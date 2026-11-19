@@ -40,6 +40,15 @@
   let campTempC = 8;
   let campHours = 8;
   let campExtra = false;
+  let currentMode = "map"; // map | camp
+  let cvFilter = "all";
+  let cvSearchQuery = "";
+  let cvRefCoord = { lat: 35.6812, lon: 139.7671, label: "东京周边" };
+  let cvOutTemp = 6;
+  let cvCabinTemp = 21;
+  let cvArrSoc = 60;
+  let cvSentry = false;
+  let cvFridge = false;
   let currentTheme = resolveTheme(state.theme);
 
   // Offscreen canvas for Mercator land-masked reachability overlay
@@ -1508,6 +1517,201 @@
     }
   }
 
+  // ---------- Dedicated Car-Camping View (#camp-view) Controller ----------
+  function switchMode(mode) {
+    currentMode = mode;
+    const isCamp = mode === "camp";
+    document.getElementById("tab-map").classList.toggle("active", !isCamp);
+    document.getElementById("tab-camp").classList.toggle("active", isCamp);
+    document.getElementById("tab-map").setAttribute("aria-selected", String(!isCamp));
+    document.getElementById("tab-camp").setAttribute("aria-selected", String(isCamp));
+    document.getElementById("camp-view").classList.toggle("hidden", !isCamp);
+    document.getElementById("status-card").classList.toggle("hidden", isCamp);
+    document.getElementById("drawer").classList.toggle("hidden", isCamp);
+    document.getElementById("btn-toggle-drawer").classList.toggle("hidden", isCamp);
+
+    if (isCamp) {
+      if (selectedScIdx >= 0 && superchargers[selectedScIdx]) {
+        const sc = superchargers[selectedScIdx];
+        cvRefCoord = { lat: sc.lat, lon: sc.lon, label: sc.name };
+      } else if (map) {
+        const c = map.getCenter();
+        cvRefCoord = { lat: c.lat, lon: c.lng, label: "当前地图中心周边" };
+      }
+      renderCampViewList();
+      if (selectedCampIdx >= 0) selectCampViewSpot(selectedCampIdx);
+    }
+  }
+
+  function getSleepHours() {
+    const s = document.getElementById("cv-sleep-start").value || "22:30";
+    const e = document.getElementById("cv-sleep-end").value || "07:00";
+    const [sh, sm] = s.split(":").map(Number);
+    const [eh, em] = e.split(":").map(Number);
+    let mins = (eh * 60 + em) - (sh * 60 + sm);
+    if (mins <= 0) mins += 24 * 60;
+    return Math.max(0.5, mins / 60.0);
+  }
+
+  function updateCampViewCalc() {
+    if (selectedCampIdx < 0 || !campSpots[selectedCampIdx]) return;
+    const spot = campSpots[selectedCampIdx];
+    const hours = getSleepHours();
+    const params = computeEnergyParams();
+    const { usableFullWh, winterMult } = params;
+
+    // Heat pump power scaled to target cabin temperature vs outside temperature
+    let kw = 0.28;
+    const heatThreshold = cvCabinTemp - 3;
+    const coolThreshold = cvCabinTemp + 3;
+    if (cvOutTemp < heatThreshold) kw += 0.065 * (heatThreshold - cvOutTemp);
+    else if (cvOutTemp > coolThreshold) kw += 0.08 * (cvOutTemp - coolThreshold);
+    if (cvSentry) kw += 0.25;
+    if (cvFridge) kw += 0.12;
+
+    const totalKwh = kw * hours;
+    const campPct = Math.round((totalKwh / (usableFullWh / 1000.0)) * 100);
+
+    document.getElementById("cv-val-temp").textContent = `${cvOutTemp}°C`;
+    document.getElementById("cv-val-soc").textContent = `${cvArrSoc}%`;
+    document.getElementById("cv-kwh-big").textContent = `${totalKwh.toFixed(1)} kWh (-${campPct}%)`;
+    document.getElementById("cv-avg-kw").textContent = `${kw.toFixed(2)} kW`;
+    document.getElementById("cv-dur-text").textContent = `${hours.toFixed(1)} 小时`;
+
+    const morningPct = cvArrSoc - campPct;
+    const morningWh = (morningPct / 100.0) * usableFullWh;
+    const toScWh = spot.sc_km * state.whPerKm * winterMult * 1.15;
+    const afterScPct = Math.round(((morningWh - toScWh) / usableFullWh) * 100);
+    const nearestSc = superchargers[spot.sc_idx];
+    const scName = nearestSc ? nearestSc.name : "最近超充";
+
+    const box = document.getElementById("cv-morning-box");
+    if (morningPct <= 0) {
+      box.innerHTML = `<b style="color:#f87171">⚠️ 电量不足以支撑整夜露营</b>：按到达 <b>${cvArrSoc}%</b> 计算，整夜消耗约 <b>${campPct}%</b>，建议先在 <b>${scName}</b> 补电后再前往。`;
+    } else if (afterScPct >= 5) {
+      box.innerHTML =
+        `到达营地 <b>${cvArrSoc}%</b> → 过夜消耗 <b>-${campPct}%</b> → 清晨剩余 <b style="color:#4ade80">${morningPct}%</b><br/>` +
+        `✓ 次日可直接开往 <b>${scName}</b>（距此 ${spot.sc_km} km，预计到达还剩 <b>${afterScPct}%</b>）`;
+    } else {
+      box.innerHTML =
+        `到达营地 <b>${cvArrSoc}%</b> → 过夜消耗 <b>-${campPct}%</b> → 清晨剩余 <b style="color:#fbbf24">${morningPct}%</b><br/>` +
+        `⚠️ 次日开往 <b>${scName}</b>（${spot.sc_km} km）余量偏紧，建议到达营地前多充 10–15% 电量。`;
+    }
+  }
+
+  async function selectCampViewSpot(idx) {
+    if (idx < 0 || !campSpots[idx]) return;
+    selectedCampIdx = idx;
+    const spot = campSpots[idx];
+
+    document.getElementById("cv-detail-empty").classList.add("hidden");
+    document.getElementById("cv-detail-active").classList.remove("hidden");
+
+    const badge = document.getElementById("cv-badge");
+    badge.className = `camp-badge ${spot.kind === "rv" ? "rv" : spot.kind === "sa" ? "sa" : ""}`;
+    badge.textContent = spot.kind === "rv" ? "RV 公园" : spot.kind === "sa" ? "高速 SA" : "道の駅";
+
+    document.getElementById("cv-spot-name").textContent = spot.name;
+    document.getElementById("cv-spot-meta").textContent = `海拔 ${spot.elev} m · 距最近超充 ${spot.sc_km} km`;
+
+    const tags = [];
+    if (spot.t) tags.push("🚻 24h厕所");
+    if (spot.p) tags.push("🔌 外部电源");
+    if (spot.o) tags.push("♨️ 附近温泉");
+    if (spot.s) tags.push("🚿 淋浴");
+    if (!tags.length) tags.push("🅿️ 夜间停靠休息");
+    document.getElementById("cv-spot-tags").innerHTML = tags.map((t) => `<span class="camp-tag">${t}</span>`).join("");
+
+    // Sync arrival SoC if reachable from currently selected SC
+    if (selectedScIdx >= 0 && graph && goUsed) {
+      const params = computeEnergyParams();
+      if (goUsed[spot.node] <= params.budgetWh) {
+        const arrWh = params.usableFullWh * (state.departPct / 100.0) - goUsed[spot.node];
+        cvArrSoc = Math.max(15, Math.min(100, Math.round((arrWh / params.usableFullWh) * 100 / 5) * 5));
+        document.getElementById("cv-arr-soc").value = cvArrSoc;
+      }
+    }
+
+    cvOutTemp = Math.max(-12, Math.min(28, Math.round(10 - spot.elev * 0.006)));
+    const tempEl = document.getElementById("cv-out-temp");
+    tempEl.value = cvOutTemp;
+    tempEl.style.setProperty("--fill", ((cvOutTemp - (-15)) / 50) * 100 + "%");
+    const socEl = document.getElementById("cv-arr-soc");
+    socEl.style.setProperty("--fill", ((cvArrSoc - 15) / 85) * 100 + "%");
+    document.getElementById("cv-temp-src").textContent = "(获取预报中…)";
+    updateCampViewCalc();
+
+    document.querySelectorAll(".cv-spot-item").forEach((el) => {
+      el.classList.toggle("active", Number(el.dataset.idx) === idx);
+    });
+
+    try {
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${spot.lat}&longitude=${spot.lon}&daily=temperature_2m_min&timezone=Asia%2FTokyo&forecast_days=2`;
+      const resp = await fetch(url);
+      if (resp.ok && selectedCampIdx === idx) {
+        const w = await resp.json();
+        const tMin = w?.daily?.temperature_2m_min?.[0];
+        if (typeof tMin === "number") {
+          cvOutTemp = Math.max(-15, Math.min(35, Math.round(tMin)));
+          tempEl.value = cvOutTemp;
+          tempEl.style.setProperty("--fill", ((cvOutTemp - (-15)) / 50) * 100 + "%");
+          document.getElementById("cv-temp-src").textContent = "(今夜 JMA 最低温)";
+          updateCampViewCalc();
+          return;
+        }
+      }
+    } catch (_) {}
+    if (selectedCampIdx === idx) {
+      document.getElementById("cv-temp-src").textContent = "(按海拔估算)";
+    }
+  }
+
+  function renderCampViewList() {
+    const listEl = document.getElementById("cv-spot-list");
+    const metaEl = document.getElementById("cv-list-meta");
+    if (!campSpots.length) {
+      metaEl.textContent = "车中泊数据加载中，请稍候…";
+      listEl.innerHTML = "";
+      return;
+    }
+
+    const q = cvSearchQuery.trim().toLowerCase();
+    const filtered = [];
+    for (let i = 0; i < campSpots.length; i++) {
+      const c = campSpots[i];
+      if (cvFilter === "michi" && c.kind !== "michi") continue;
+      if (cvFilter === "rv" && c.kind !== "rv") continue;
+      if (cvFilter === "sa" && c.kind !== "sa") continue;
+      if (cvFilter === "onsen" && !c.o) continue;
+      if (cvFilter === "power" && !c.p) continue;
+      const d = haversineKm(cvRefCoord.lat, cvRefCoord.lon, c.lat, c.lon);
+      if (q && !c.name.toLowerCase().includes(q)) {
+        // Also keep spots within 60km of searched city center
+        if (d > 60) continue;
+      }
+      filtered.push({ idx: i, c, d });
+    }
+    filtered.sort((a, b) => a.d - b.d);
+    const shown = filtered.slice(0, 50);
+
+    metaEl.textContent = `${cvRefCoord.label} · 匹配 ${filtered.length} 处（显示最近 ${shown.length} 处）`;
+    listEl.innerHTML = shown
+      .map(({ idx, c, d }) => {
+        const badge = c.kind === "rv" ? "RV" : c.kind === "sa" ? "SA" : "道の駅";
+        const bCls = c.kind === "rv" ? "rv" : c.kind === "sa" ? "sa" : "";
+        const feats = [c.o ? "♨️温泉" : "", c.p ? "🔌电源" : "", c.t ? "🚻厕所" : ""].filter(Boolean).join(" ");
+        return `<button class="cv-spot-item ${idx === selectedCampIdx ? "active" : ""}" type="button" data-idx="${idx}">
+          <div class="cv-spot-row1"><span>${c.name}</span><span class="camp-badge ${bCls}">${badge}</span></div>
+          <div class="cv-spot-row2"><span>${feats || "夜间停靠"} · 海拔 ${c.elev}m</span><span>距参考点 ${d.toFixed(1)} km</span></div>
+        </button>`;
+      })
+      .join("");
+
+    listEl.querySelectorAll(".cv-spot-item").forEach((btn) => {
+      btn.addEventListener("click", () => selectCampViewSpot(Number(btn.dataset.idx)));
+    });
+  }
+
   function bindUI() {
     const sWh = document.getElementById("slider-wh");
     const sFull = document.getElementById("slider-full");
@@ -1664,6 +1868,75 @@
     document.getElementById("chk-camp-extra").addEventListener("change", (e) => {
       campExtra = e.target.checked;
       updateCampCalc();
+    });
+
+    // Mode tabs (⚡ 超充地图 <-> ⛺ 车中泊)
+    document.getElementById("tab-map").addEventListener("click", () => switchMode("map"));
+    document.getElementById("tab-camp").addEventListener("click", () => switchMode("camp"));
+
+    // Dedicated Camp View bindings
+    document.querySelectorAll("#cv-filters .cv-chip").forEach((chip) => {
+      chip.addEventListener("click", () => {
+        cvFilter = chip.dataset.filter;
+        document.querySelectorAll("#cv-filters .cv-chip").forEach((c) => c.classList.toggle("active", c === chip));
+        renderCampViewList();
+      });
+    });
+
+    document.getElementById("cv-search-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const raw = document.getElementById("cv-search-input").value.trim();
+      cvSearchQuery = raw;
+      if (raw) {
+        const found = await searchDestinationQuery(raw).catch(() => null);
+        if (found) {
+          cvRefCoord = { lat: found.lat, lon: found.lon, label: `${found.name}周边` };
+        }
+      }
+      renderCampViewList();
+    });
+
+    document.getElementById("btn-cv-gps").addEventListener("click", () => {
+      if (!navigator.geolocation) return;
+      navigator.geolocation.getCurrentPosition((pos) => {
+        cvSearchQuery = "";
+        document.getElementById("cv-search-input").value = "";
+        cvRefCoord = { lat: pos.coords.latitude, lon: pos.coords.longitude, label: "当前定位周边" };
+        renderCampViewList();
+      });
+    });
+
+    document.getElementById("btn-cv-show-map").addEventListener("click", () => {
+      const idx = selectedCampIdx;
+      switchMode("map");
+      if (idx >= 0) selectCampSpot(idx, true);
+    });
+
+    const syncSliderFill = (el) => el.style.setProperty("--fill", ((el.value - el.min) / (el.max - el.min)) * 100 + "%");
+    document.getElementById("cv-sleep-start").addEventListener("change", updateCampViewCalc);
+    document.getElementById("cv-sleep-end").addEventListener("change", updateCampViewCalc);
+    document.getElementById("cv-cabin-temp").addEventListener("change", (e) => {
+      cvCabinTemp = Number(e.target.value);
+      updateCampViewCalc();
+    });
+    document.getElementById("cv-out-temp").addEventListener("input", (e) => {
+      cvOutTemp = Number(e.target.value);
+      syncSliderFill(e.target);
+      document.getElementById("cv-temp-src").textContent = "(手动设定)";
+      updateCampViewCalc();
+    });
+    document.getElementById("cv-arr-soc").addEventListener("input", (e) => {
+      cvArrSoc = Number(e.target.value);
+      syncSliderFill(e.target);
+      updateCampViewCalc();
+    });
+    document.getElementById("cv-chk-sentry").addEventListener("change", (e) => {
+      cvSentry = e.target.checked;
+      updateCampViewCalc();
+    });
+    document.getElementById("cv-chk-fridge").addEventListener("change", (e) => {
+      cvFridge = e.target.checked;
+      updateCampViewCalc();
     });
 
     document.getElementById("btn-reset-defaults").addEventListener("click", () => {
@@ -1866,6 +2139,7 @@
         progressPill.classList.add("hidden");
         ensureReachOverlaySource();
         updateCampLayer();
+        if (currentMode === "camp") renderCampViewList();
         if (selectedScIdx >= 0) updateReachability({ animate: true, pan: false });
       }).catch((err) => {
         progressText.textContent = "路网加载失败";
