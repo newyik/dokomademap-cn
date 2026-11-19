@@ -1778,3 +1778,85 @@ body.theme-light .pill-btn.ghost[aria-pressed="true"]:not(.purple-on) { color: #
   .trip-bar-actions { width: 100%; }
   .trip-bar-actions .pill-btn { flex: 1; justify-content: center; }
 }
+
+/* ---------- 车中泊：气温自动 + 时间滚轮 ---------- */
+.cv-temp-actions { display: flex; justify-content: flex-end; margin: -2px 0 6px; }
+.cv-temp-group small { color: var(--text-3); font-weight: 400; }
+.time-btn {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 17px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+  padding: 2px 0;
+  cursor: pointer;
+}
+.cv-time-field:has(.time-btn) { cursor: pointer; }
+.cv-time-field:has(.time-btn):hover { background: var(--sub-2); }
+
+#time-wheel { z-index: 80; }
+.wheel-card {
+  width: 100%;
+  max-width: 340px;
+  padding: 10px 16px 18px;
+  border-radius: 22px;
+  background: var(--glass-solid);
+  animation: pop 0.3s var(--ease) both;
+}
+.wheel-head { display: flex; justify-content: space-between; align-items: center; padding: 4px 2px 8px; }
+.wheel-head b { font-size: 15px; }
+.wheel-head .text-btn { font-size: 15px; padding: 6px 4px; }
+.wheel-head .wheel-cancel { color: var(--text-2); }
+.wheel-body {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  height: 220px;
+  -webkit-mask-image: linear-gradient(transparent, #000 30%, #000 70%, transparent);
+  mask-image: linear-gradient(transparent, #000 30%, #000 70%, transparent);
+}
+.wheel-band {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 88px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--sub-2);
+  pointer-events: none;
+}
+.wheel-col {
+  position: relative;
+  width: 80px;
+  height: 220px;
+  overflow-y: scroll;
+  scroll-snap-type: y mandatory;
+  scroll-padding-top: 88px;
+  padding: 88px 0;
+  scrollbar-width: none;
+  overscroll-behavior: contain;
+}
+.wheel-col::-webkit-scrollbar { display: none; }
+.wheel-item {
+  height: 44px;
+  line-height: 44px;
+  text-align: center;
+  font-size: 22px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+  scroll-snap-align: start;
+  cursor: pointer;
+  transition: color 0.15s, transform 0.15s;
+}
+.wheel-item.on { color: var(--text); font-weight: 700; transform: scale(1.08); }
+.wheel-sep { font-size: 22px; font-weight: 700; z-index: 1; }
+@media (max-width: 760px) {
+  #time-wheel { place-items: end stretch; padding: 0; }
+  .wheel-card { max-width: none; border-radius: 22px 22px 0 0; padding-bottom: calc(18px + env(safe-area-inset-bottom)); }
+}

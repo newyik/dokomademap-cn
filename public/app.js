@@ -49,6 +49,9 @@
   let cvSearchQuery = "";
   let cvRefCoord = { lat: 35.6812, lon: 139.7671, label: "东京周边" };
   let cvOutTemp = 6;
+  // 当地逐小时气温预报（Open-Meteo），用来算睡觉那几个小时的平均气温
+  let cvHourly = null; // { spotIdx, startMs: 第一个小时(当地 0 点)的时间戳, temps: [...] }
+  let cvTempManual = false;
   let cvCabinTemp = 21;
   let cvArrSoc = 60;
   let cvSentry = false;
@@ -1895,6 +1898,37 @@
     }
   }
 
+  // 按入睡~起床这段时间，从当地逐小时预报里取平均气温和最低气温
+  function applyAutoCampTemp() {
+    if (cvTempManual || !cvHourly || cvHourly.spotIdx !== selectedCampIdx) return;
+    const s = document.getElementById("cv-sleep-start").value || "22:30";
+    const [sh, sm] = s.split(":").map(Number);
+    const hours = getSleepHours();
+    // 今晚：当地日期的入睡时刻。如果当地已经过了起床时间的次日早上，就看明晚
+    const nowJst = Date.now() + 9 * 3600e3;
+    let startMs = cvHourly.startMs + (sh * 60 + sm) * 60e3;
+    if (nowJst > startMs + hours * 3600e3) startMs += 24 * 3600e3;
+    const from = Math.floor((startMs - cvHourly.startMs) / 3600e3);
+    const to = Math.ceil((startMs + hours * 3600e3 - cvHourly.startMs) / 3600e3);
+    const slice = cvHourly.temps.slice(Math.max(0, from), Math.min(cvHourly.temps.length, to + 1)).filter((t) => typeof t === "number");
+    if (!slice.length) return;
+    const avg = slice.reduce((a, b) => a + b, 0) / slice.length;
+    const min = Math.min(...slice);
+    cvOutTemp = Math.max(-15, Math.min(35, Math.round(avg)));
+    const tempEl = document.getElementById("cv-out-temp");
+    tempEl.value = cvOutTemp;
+    tempEl.style.setProperty("--fill", ((cvOutTemp - (-15)) / 50) * 100 + "%");
+    const isTomorrow = startMs - cvHourly.startMs >= 24 * 3600e3 + (sh * 60 + sm) * 60e3;
+    document.getElementById("cv-temp-src").textContent = `(当地预报 · ${isTomorrow ? "明晚" : "今晚"}睡觉时段平均，最低 ${Math.round(min)}°C)`;
+    updateCampViewCalc();
+  }
+
+  function setTempManualUi(manual) {
+    document.getElementById("cv-out-temp").classList.toggle("hidden", !manual);
+    document.getElementById("btn-cv-temp-manual").classList.toggle("hidden", manual);
+    document.getElementById("btn-cv-temp-auto").classList.toggle("hidden", !manual || !cvHourly);
+  }
+
   function getSleepHours() {
     const s = document.getElementById("cv-sleep-start").value || "22:30";
     const e = document.getElementById("cv-sleep-end").value || "07:00";
@@ -2039,7 +2073,10 @@
     tempEl.style.setProperty("--fill", ((cvOutTemp - (-15)) / 50) * 100 + "%");
     const socEl = document.getElementById("cv-arr-soc");
     socEl.style.setProperty("--fill", ((cvArrSoc - 15) / 85) * 100 + "%");
-    document.getElementById("cv-temp-src").textContent = "(获取预报中…)";
+    document.getElementById("cv-temp-src").textContent = "(获取当地预报中…)";
+    cvTempManual = false;
+    cvHourly = null;
+    setTempManualUi(false);
     updateCampViewCalc();
 
     document.querySelectorAll(".cv-spot-item").forEach((el) => {
@@ -2047,23 +2084,22 @@
     });
 
     try {
-      const url = `https://api.open-meteo.com/v1/forecast?latitude=${spot.lat}&longitude=${spot.lon}&daily=temperature_2m_min&timezone=Asia%2FTokyo&forecast_days=2`;
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${spot.lat}&longitude=${spot.lon}&hourly=temperature_2m&timezone=Asia%2FTokyo&forecast_days=3`;
       const resp = await fetch(url);
       if (resp.ok && selectedCampIdx === idx) {
         const w = await resp.json();
-        const tMin = w?.daily?.temperature_2m_min?.[0];
-        if (typeof tMin === "number") {
-          cvOutTemp = Math.max(-15, Math.min(35, Math.round(tMin)));
-          tempEl.value = cvOutTemp;
-          tempEl.style.setProperty("--fill", ((cvOutTemp - (-15)) / 50) * 100 + "%");
-          document.getElementById("cv-temp-src").textContent = "(今夜 JMA 最低温)";
-          updateCampViewCalc();
+        const times = w?.hourly?.time;
+        const temps = w?.hourly?.temperature_2m;
+        if (Array.isArray(times) && Array.isArray(temps) && temps.length) {
+          // 时间是东京当地时间字符串，按 UTC 解析只用来做相对计算
+          cvHourly = { spotIdx: idx, startMs: Date.parse(times[0] + ":00Z"), temps };
+          applyAutoCampTemp();
           return;
         }
       }
     } catch (_) {}
     if (selectedCampIdx === idx) {
-      document.getElementById("cv-temp-src").textContent = "(按海拔估算)";
+      document.getElementById("cv-temp-src").textContent = "(没拿到预报，按海拔估算)";
     }
   }
 
@@ -2328,8 +2364,88 @@
     });
 
     const syncSliderFill = (el) => el.style.setProperty("--fill", ((el.value - el.min) / (el.max - el.min)) * 100 + "%");
-    document.getElementById("cv-sleep-start").addEventListener("change", updateCampViewCalc);
-    document.getElementById("cv-sleep-end").addEventListener("change", updateCampViewCalc);
+    const onSleepTimeChange = () => { updateCampViewCalc(); applyAutoCampTemp(); };
+    document.getElementById("cv-sleep-start").addEventListener("change", onSleepTimeChange);
+    document.getElementById("cv-sleep-end").addEventListener("change", onSleepTimeChange);
+    document.getElementById("btn-cv-temp-manual").addEventListener("click", () => {
+      cvTempManual = true;
+      setTempManualUi(true);
+      document.getElementById("cv-temp-src").textContent = "(手动设定)";
+    });
+    document.getElementById("btn-cv-temp-auto").addEventListener("click", () => {
+      cvTempManual = false;
+      setTempManualUi(false);
+      applyAutoCampTemp();
+    });
+
+    // ---------- 时间滚轮 ----------
+    const wheelSheet = document.createElement("div");
+    wheelSheet.className = "modal-backdrop hidden";
+    wheelSheet.id = "time-wheel";
+    wheelSheet.innerHTML = `
+      <div class="wheel-card glass" role="dialog" aria-modal="true" aria-labelledby="wheel-title">
+        <div class="wheel-head">
+          <button type="button" class="text-btn wheel-cancel">取消</button>
+          <b id="wheel-title">选择时间</b>
+          <button type="button" class="text-btn wheel-done">完成</button>
+        </div>
+        <div class="wheel-body">
+          <div class="wheel-band" aria-hidden="true"></div>
+          <div class="wheel-col" data-kind="h" aria-label="小时"></div>
+          <div class="wheel-sep">:</div>
+          <div class="wheel-col" data-kind="m" aria-label="分钟"></div>
+        </div>
+      </div>`;
+    document.body.appendChild(wheelSheet);
+    const WHEEL_ROW = 44;
+    const MINUTES = Array.from({ length: 12 }, (_, i) => i * 5);
+    const colH = wheelSheet.querySelector('[data-kind="h"]');
+    const colM = wheelSheet.querySelector('[data-kind="m"]');
+    const pad2 = (n) => String(n).padStart(2, "0");
+    colH.innerHTML = Array.from({ length: 24 }, (_, i) => `<div class="wheel-item">${pad2(i)}</div>`).join("");
+    colM.innerHTML = MINUTES.map((m) => `<div class="wheel-item">${pad2(m)}</div>`).join("");
+    const markWheel = (col) => {
+      const i = Math.round(col.scrollTop / WHEEL_ROW);
+      [...col.children].forEach((el, k) => el.classList.toggle("on", k === i));
+    };
+    [colH, colM].forEach((col) => {
+      col.addEventListener("scroll", () => markWheel(col), { passive: true });
+      // 点某一项直接滚到它
+      col.addEventListener("click", (e) => {
+        const item = e.target.closest(".wheel-item");
+        if (item) col.scrollTo({ top: [...col.children].indexOf(item) * WHEEL_ROW, behavior: "smooth" });
+      });
+    });
+    let wheelTarget = null;
+    const openWheel = (btn) => {
+      wheelTarget = btn;
+      const input = document.getElementById(btn.dataset.target);
+      const [h, m] = (input.value || "22:30").split(":").map(Number);
+      const mi = Math.round(m / 5) % 12;
+      wheelSheet.querySelector("#wheel-title").textContent = btn.dataset.title || "选择时间";
+      wheelSheet.classList.remove("hidden");
+      requestAnimationFrame(() => {
+        colH.scrollTop = h * WHEEL_ROW;
+        colM.scrollTop = mi * WHEEL_ROW;
+        markWheel(colH);
+        markWheel(colM);
+      });
+    };
+    const closeWheel = () => { wheelSheet.classList.add("hidden"); wheelTarget = null; };
+    wheelSheet.querySelector(".wheel-cancel").addEventListener("click", closeWheel);
+    wheelSheet.addEventListener("click", (e) => { if (e.target === wheelSheet) closeWheel(); });
+    wheelSheet.querySelector(".wheel-done").addEventListener("click", () => {
+      if (!wheelTarget) return closeWheel();
+      const h = Math.min(23, Math.max(0, Math.round(colH.scrollTop / WHEEL_ROW)));
+      const m = MINUTES[Math.min(11, Math.max(0, Math.round(colM.scrollTop / WHEEL_ROW)))];
+      const val = `${pad2(h)}:${pad2(m)}`;
+      const input = document.getElementById(wheelTarget.dataset.target);
+      input.value = val;
+      wheelTarget.textContent = val;
+      input.dispatchEvent(new Event("change"));
+      closeWheel();
+    });
+    document.querySelectorAll(".time-btn").forEach((btn) => btn.addEventListener("click", () => openWheel(btn)));
     document.getElementById("cv-cabin-temp").addEventListener("change", (e) => {
       cvCabinTemp = Number(e.target.value);
       updateCampViewCalc();

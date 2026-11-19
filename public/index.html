@@ -11,7 +11,7 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23e31937'/><path d='M17.5 5l-8 12h5.5l-1.5 10 9-13h-5.5z' fill='%23fff'/></svg>" />
   <link rel="preconnect" href="https://tiles.openfreemap.org" crossorigin />
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
-  <link rel="stylesheet" href="style.css?v=20261119trip2" />
+  <link rel="stylesheet" href="style.css?v=20261119camp1" />
 </head>
 <body>
   <div id="map"></div>
@@ -264,14 +264,16 @@
           </div>
 
           <div class="cv-time-grid">
-            <label class="cv-time-field">
+            <div class="cv-time-field">
               <span>入睡时间</span>
-              <input id="cv-sleep-start" type="time" value="22:30" />
-            </label>
-            <label class="cv-time-field">
+              <button class="time-btn" type="button" data-target="cv-sleep-start" data-title="入睡时间">22:30</button>
+              <input id="cv-sleep-start" type="hidden" value="22:30" />
+            </div>
+            <div class="cv-time-field">
               <span>起床时间</span>
-              <input id="cv-sleep-end" type="time" value="07:00" />
-            </label>
+              <button class="time-btn" type="button" data-target="cv-sleep-end" data-title="起床时间">07:00</button>
+              <input id="cv-sleep-end" type="hidden" value="07:00" />
+            </div>
             <label class="cv-time-field">
               <span>车内设定温度</span>
               <select id="cv-cabin-temp">
@@ -283,12 +285,16 @@
             </label>
           </div>
 
-          <div class="control-group">
+          <div class="control-group cv-temp-group">
             <div class="control-label-row">
               <label for="cv-out-temp">夜间车外气温 <small id="cv-temp-src"></small></label>
               <span id="cv-val-temp" class="control-value">6°C</span>
             </div>
-            <input id="cv-out-temp" type="range" min="-15" max="35" step="1" value="6" />
+            <div class="cv-temp-actions">
+              <button id="btn-cv-temp-manual" class="text-btn" type="button">手动调整</button>
+              <button id="btn-cv-temp-auto" class="text-btn hidden" type="button">恢复当地预报</button>
+            </div>
+            <input id="cv-out-temp" class="hidden" type="range" min="-15" max="35" step="1" value="6" />
           </div>
 
           <div class="control-group">
@@ -506,6 +512,6 @@
   </div>
 
   <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
-  <script src="app.js?v=20261119trip2"></script>
+  <script src="app.js?v=20261119camp1"></script>
 </body>
 </html>
