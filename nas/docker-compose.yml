@@ -1,0 +1,55 @@
+services:
+  teslamate:
+    image: teslamate/teslamate:latest
+    restart: unless-stopped
+    environment:
+      - ENCRYPTION_KEY=${TM_ENCRYPTION_KEY}
+      - DATABASE_USER=teslamate
+      - DATABASE_PASS=${TM_DB_PASS}
+      - DATABASE_NAME=teslamate
+      - DATABASE_HOST=database
+      - MQTT_HOST=mosquitto
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./import:/opt/app/import
+    depends_on:
+      - database
+      - mosquitto
+
+  database:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=teslamate
+      - POSTGRES_PASSWORD=${TM_DB_PASS}
+      - POSTGRES_DB=teslamate
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    restart: unless-stopped
+    command: mosquitto -c /mosquitto-no-auth.conf
+    volumes:
+      - ./mosquitto_data:/mosquitto/data
+
+  tesla-sync-bridge:
+    image: python:3.12-alpine
+    restart: unless-stopped
+    working_dir: /app
+    command: >
+      sh -c "pip install --no-cache-dir psycopg2-binary && python bridge.py"
+    environment:
+      - DATABASE_HOST=database
+      - DATABASE_USER=teslamate
+      - DATABASE_PASS=${TM_DB_PASS}
+      - DATABASE_NAME=teslamate
+      - BRIDGE_TOKEN=${BRIDGE_TOKEN}
+      - PORT=8090
+    ports:
+      - "8090:8090"
+    volumes:
+      - ./bridge.py:/app/bridge.py:ro
+    depends_on:
+      - database

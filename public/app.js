@@ -68,6 +68,8 @@
   let parentEdge = null;
   let goUsed = null;
   let nacsUsed = null;
+  let carUsed = null;
+  let carState = { active: false, lat: 0, lon: 0, node: -1, soc: 80, updatedAt: "" };
   let goParentNode = null;
   let goParentEdge = null;
   let backUsed = null;
@@ -158,6 +160,7 @@
     parentEdge = new Int32Array(nNodes);
     goUsed = new Float64Array(nNodes);
     nacsUsed = new Float64Array(nNodes);
+    carUsed = new Float64Array(nNodes);
     goParentNode = new Int32Array(nNodes);
     goParentEdge = new Int32Array(nNodes);
     backUsed = new Float64Array(nNodes);
@@ -406,19 +409,32 @@
     return (alpha << 24) | (b << 16) | (g << 8) | r;
   }
 
-  function paintReachPixels(budgetWh, offroadWhPerM, scRevealFrac, nacsRevealFrac = 1.0) {
+  // Purple gradient for user's own car reachability (little-endian ABGR)
+  function ratioToPurpleABGR(ratio) {
+    const t = Math.max(0, Math.min(1, ratio));
+    const r = Math.round(107 + t * (216 - 107));
+    const g = Math.round(33 + t * (180 - 33));
+    const b = Math.round(168 + t * (254 - 168));
+    const alpha = Math.round(150 + 30 * (1.0 - t * 0.25));
+    return (alpha << 24) | (b << 16) | (g << 8) | r;
+  }
+
+  function paintReachPixels(budgetWh, offroadWhPerM, scRevealFrac, nacsRevealFrac = 1.0, carBudgetWh = 0) {
     const { nPix, pixIdx, pixNode, pixDist } = grid;
     reachPixels32.fill(0);
-    if (budgetWh <= 0) {
+    if (budgetWh <= 0 && carBudgetWh <= 0) {
       reachCtx.putImageData(reachImgData, 0, 0);
       return;
     }
 
-    const invBudget = 1.0 / budgetWh;
-    const hasSc = selectedScIdx >= 0 && scRevealFrac > 0;
-    const hasNacs = selectedNacsIdx >= 0 && nacsRevealFrac > 0 && nacsUsed;
+    const invBudget = budgetWh > 0 ? 1.0 / budgetWh : 0;
+    const invCarBudget = carBudgetWh > 0 ? 1.0 / carBudgetWh : 0;
+    const hasSc = selectedScIdx >= 0 && scRevealFrac > 0 && budgetWh > 0;
+    const hasNacs = selectedNacsIdx >= 0 && nacsRevealFrac > 0 && nacsUsed && budgetWh > 0;
+    const hasCar = carState.active && carState.node >= 0 && carUsed && carBudgetWh > 0;
     const scMax = budgetWh * scRevealFrac;
     const nacsMax = budgetWh * nacsRevealFrac;
+    const carMax = carBudgetWh * scRevealFrac;
 
     for (let i = 0; i < nPix; i++) {
       const node = pixNode[i];
@@ -432,6 +448,20 @@
             const rem = budgetWh - totalUsed;
             if (rem > 0) {
               reachPixels32[pixIdx[i]] = ratioToABGR(rem * invBudget);
+              continue;
+            }
+          }
+        }
+      }
+
+      if (hasCar) {
+        const cNodeUsed = carUsed[node];
+        if (cNodeUsed <= carMax) {
+          const totalUsed = cNodeUsed + offWh;
+          if (totalUsed <= carMax) {
+            const rem = carBudgetWh - totalUsed;
+            if (rem > 0) {
+              reachPixels32[pixIdx[i]] = ratioToPurpleABGR(rem * invCarBudget);
               continue;
             }
           }
@@ -477,6 +507,17 @@
     return null;
   }
 
+  function updateCarPinLayer() {
+    if (!map) return;
+    const src = map.getSource("car-pin");
+    if (!src) return;
+    src.setData(
+      carState.active
+        ? { type: "FeatureCollection", features: [{ type: "Feature", geometry: { type: "Point", coordinates: [carState.lon, carState.lat] } }] }
+        : { type: "FeatureCollection", features: [] }
+    );
+  }
+
   function updateReachability(opts = {}) {
     if (!graph || !grid || !map) return;
     const { animate = false, pan = false, animateNacsOnly = false } = opts;
@@ -490,16 +531,20 @@
     const activeEl = document.getElementById("status-active");
     const ferryLegendEl = document.getElementById("ferry-legend");
     const nacsLegendEl = document.getElementById("nacs-legend");
+    const purpleLegendEl = document.getElementById("purple-legend");
     const sc = selectedScIdx >= 0 ? superchargers[selectedScIdx] : null;
     const nacsOrigin = selectedNacsIdx >= 0 ? nacsChargers[selectedNacsIdx] : null;
+    const hasCar = carState.active && carState.node >= 0;
 
     ensureReachOverlaySource();
+    updateCarPinLayer();
 
-    if (!sc && !nacsOrigin) {
+    if (!sc && !nacsOrigin && !hasCar) {
       if (selectedCampIdx < 0) emptyEl.classList.remove("hidden");
       else emptyEl.classList.add("hidden");
       activeEl.classList.add("hidden");
       if (nacsLegendEl) nacsLegendEl.classList.add("hidden");
+      if (purpleLegendEl) purpleLegendEl.classList.add("hidden");
       if (map.getLayer("reach-overlay-layer")) {
         map.setLayoutProperty("reach-overlay-layer", "visibility", "none");
       }
@@ -513,7 +558,7 @@
       return;
     }
 
-    if (sc) {
+    if (sc || hasCar) {
       emptyEl.classList.add("hidden");
       activeEl.classList.remove("hidden");
     } else {
@@ -526,14 +571,19 @@
     if (nacsLegendEl) {
       nacsLegendEl.classList.toggle("hidden", !nacsOrigin);
     }
+    if (purpleLegendEl) {
+      purpleLegendEl.classList.toggle("hidden", !hasCar);
+    }
     if (map.getLayer("reach-overlay-layer")) {
       map.setLayoutProperty("reach-overlay-layer", "visibility", "visible");
     }
 
     const params = computeEnergyParams();
-    const { budgetWh, winterMult } = params;
+    const { usableFullWh, budgetWh, winterMult } = params;
+    const carUsablePct = Math.max(0, carState.soc - state.arrivePct);
+    const carBudgetWh = hasCar ? usableFullWh * (carUsablePct / 100.0) : 0;
 
-    // 1. Run Dijkstra for Supercharger (if selected) and/or 3rd-party NACS (if selected)
+    // 1. Run Dijkstra for Supercharger, Car, and/or 3rd-party NACS
     if (sc && !animateNacsOnly) {
       runDijkstra(sc.node, false, params, goUsed, goParentNode, goParentEdge);
       if (state.roundTrip) {
@@ -543,6 +593,24 @@
             goUsed[i] = goUsed[i] + backUsed[i];
           } else {
             goUsed[i] = Infinity;
+          }
+        }
+      }
+    }
+    if (hasCar && !animateNacsOnly) {
+      const carParams = {
+        ...params,
+        budgetWh: carBudgetWh,
+        minUsedAllowed: -usableFullWh * ((100.0 - carState.soc) / 100.0),
+      };
+      runDijkstra(carState.node, false, carParams, carUsed, !sc ? goParentNode : null, !sc ? goParentEdge : null);
+      if (state.roundTrip) {
+        runDijkstra(carState.node, true, carParams, backUsed);
+        for (let i = 0; i < graph.nNodes; i++) {
+          if (carUsed[i] <= carBudgetWh && backUsed[i] <= carBudgetWh) {
+            carUsed[i] = carUsed[i] + backUsed[i];
+          } else {
+            carUsed[i] = Infinity;
           }
         }
       }
@@ -564,15 +632,13 @@
     // 2. Smoothly center camera and animate outward energy wave
     const offroadWhPerM = (state.whPerKm / 1000.0) * 1.12 * winterMult * (state.roundTrip ? 2.0 : 1.0);
     if (pan && sc) {
-      map.easeTo({
-        center: [sc.lon, sc.lat],
-        duration: 500,
-        easing: (t) => 1 - Math.pow(1 - t, 3),
-      });
+      map.easeTo({ center: [sc.lon, sc.lat], duration: 500, easing: (t) => 1 - Math.pow(1 - t, 3) });
+    } else if (pan && hasCar && !sc) {
+      map.easeTo({ center: [carState.lon, carState.lat], zoom: Math.max(map.getZoom(), 7.5), duration: 500, easing: (t) => 1 - Math.pow(1 - t, 3) });
     }
 
     const src = map.getSource("reach-overlay");
-    if (animate && budgetWh > 0 && src) {
+    if (animate && (budgetWh > 0 || carBudgetWh > 0) && src) {
       const startMs = performance.now();
       const durationMs = 420;
       src.play();
@@ -580,8 +646,8 @@
         const rawT = Math.min(1.0, (now - startMs) / durationMs);
         const eased = 1.0 - Math.pow(1.0 - rawT, 3);
         const frac = 0.06 + 0.94 * eased;
-        paintReachPixels(budgetWh, offroadWhPerM, animateNacsOnly ? 1.0 : frac, frac);
-        if (!animateNacsOnly && map.getLayer("sc-selected-halo")) {
+        paintReachPixels(budgetWh, offroadWhPerM, animateNacsOnly ? 1.0 : frac, frac, carBudgetWh);
+        if (!animateNacsOnly && sc && map.getLayer("sc-selected-halo")) {
           map.setPaintProperty("sc-selected-halo", "circle-radius", 24 - 10 * eased);
         }
         if (rawT < 1.0) {
@@ -593,11 +659,14 @@
       };
       revealAnimId = requestAnimationFrame(step);
     } else {
-      paintReachPixels(budgetWh, offroadWhPerM, 1.0, 1.0);
+      paintReachPixels(budgetWh, offroadWhPerM, 1.0, 1.0, carBudgetWh);
       refreshCanvasOverlayOnce();
     }
 
     // 3. Update Ferry, Supercharger & NACS layers and status metrics
+    const primaryArr = sc ? goUsed : (hasCar ? carUsed : null);
+    const primaryBudget = sc ? budgetWh : carBudgetWh;
+
     if (sc) {
       updateFerryLayer(goUsed, budgetWh);
       const reachableScCount = updateSuperchargerLayer(goUsed, budgetWh);
@@ -615,13 +684,29 @@
         gauge.style.setProperty("--soc-to", state.departPct + "%");
         document.getElementById("soc-label").textContent = `${state.departPct}% → ${state.arrivePct}%`;
       }
-      if (selectedDest) evaluateDestination(selectedDest);
-      else updateDestRouteLayer(null, null);
+    } else if (hasCar) {
+      updateFerryLayer(carUsed, carBudgetWh);
+      const reachableScCount = updateSuperchargerLayer(carUsed, carBudgetWh);
+      document.getElementById("sc-name").textContent = "🚗 我的 Model 3 当前位置";
+      document.getElementById("sc-meta").textContent = `当前电量 ${carState.soc}%${carState.updatedAt ? " · 已同步" : ""}`;
+      document.getElementById("metric-kwh").textContent = `${(carBudgetWh / 1000.0).toFixed(1)} kWh`;
+      const flatKm = carBudgetWh > 0 ? (carBudgetWh / (state.whPerKm * winterMult)) / (state.roundTrip ? 2.0 : 1.0) : 0;
+      document.getElementById("metric-range").textContent = `${Math.round(flatKm)} km`;
+      document.getElementById("metric-sc-count").textContent = `${reachableScCount} 座`;
+      const gauge = document.getElementById("soc-gauge");
+      if (gauge) {
+        gauge.style.setProperty("--soc-from", state.arrivePct + "%");
+        gauge.style.setProperty("--soc-to", carState.soc + "%");
+        document.getElementById("soc-label").textContent = `${carState.soc}% → ${state.arrivePct}%`;
+      }
     } else {
       updateFerryLayer(null, Infinity);
       updateSuperchargerLayer(null, Infinity);
-      updateDestRouteLayer(null, null);
     }
+
+    if (selectedDest && primaryArr) evaluateDestination(selectedDest);
+    else updateDestRouteLayer(null, null);
+
     updateNacsLayer();
     if (selectedCampIdx >= 0) {
       updateCampCalc();
@@ -993,6 +1078,28 @@
       },
       "sc-selected-halo"
     );
+
+    map.addSource("car-pin", {
+      type: "geojson",
+      data: { type: "FeatureCollection", features: [] },
+    });
+    map.addLayer({
+      id: "car-pin-halo",
+      type: "circle",
+      source: "car-pin",
+      paint: { "circle-radius": 16, "circle-color": "rgba(168, 85, 247, 0.28)" },
+    });
+    map.addLayer({
+      id: "car-pin-circle",
+      type: "circle",
+      source: "car-pin",
+      paint: {
+        "circle-radius": 8,
+        "circle-color": "#a855f7",
+        "circle-stroke-width": 2.5,
+        "circle-stroke-color": "#ffffff",
+      },
+    });
 
     updateCampLayer();
     updateNacsLayer(null, Infinity);
@@ -1736,6 +1843,28 @@
       map.setPaintProperty("nacs-circles", "circle-opacity", isCamp ? 0.2 : 1.0);
       map.setPaintProperty("nacs-circles", "circle-stroke-opacity", isCamp ? 0.25 : 1.0);
     }
+    map.addSource("car-pin", {
+      type: "geojson",
+      data: { type: "FeatureCollection", features: [] },
+    });
+    map.addLayer({
+      id: "car-pin-halo",
+      type: "circle",
+      source: "car-pin",
+      paint: { "circle-radius": 16, "circle-color": "rgba(168, 85, 247, 0.28)" },
+    });
+    map.addLayer({
+      id: "car-pin-circle",
+      type: "circle",
+      source: "car-pin",
+      paint: {
+        "circle-radius": 8,
+        "circle-color": "#a855f7",
+        "circle-stroke-width": 2.5,
+        "circle-stroke-color": "#ffffff",
+      },
+    });
+
     updateCampLayer();
   }
 
@@ -2097,7 +2226,29 @@
       document.querySelectorAll("#cv-filters .cv-chip, #cmb-filters .cv-chip").forEach((c) => {
         c.classList.toggle("active", c.dataset.filter === cvFilter);
       });
-      updateCampLayer();
+      map.addSource("car-pin", {
+      type: "geojson",
+      data: { type: "FeatureCollection", features: [] },
+    });
+    map.addLayer({
+      id: "car-pin-halo",
+      type: "circle",
+      source: "car-pin",
+      paint: { "circle-radius": 16, "circle-color": "rgba(168, 85, 247, 0.28)" },
+    });
+    map.addLayer({
+      id: "car-pin-circle",
+      type: "circle",
+      source: "car-pin",
+      paint: {
+        "circle-radius": 8,
+        "circle-color": "#a855f7",
+        "circle-stroke-width": 2.5,
+        "circle-stroke-color": "#ffffff",
+      },
+    });
+
+    updateCampLayer();
       renderCampViewList();
     };
     document.querySelectorAll("#cv-filters .cv-chip, #cmb-filters .cv-chip").forEach((chip) => {
@@ -2176,6 +2327,99 @@
     document.getElementById("btn-clear-sc").addEventListener("click", () => {
       selectedScIdx = -1;
       selectedNacsIdx = -1;
+      carState.active = false;
+      document.getElementById("btn-my-car").setAttribute("aria-pressed", "false");
+      updateReachability();
+    });
+
+    // NAS TeslaMate Car Sync Modal & Purple Reachability
+    const nasModal = document.getElementById("nas-modal");
+    const nasUrlEl = document.getElementById("nas-url");
+    const nasTokEl = document.getElementById("nas-token");
+    const nasMsgEl = document.getElementById("nas-status-msg");
+    const btnMyCar = document.getElementById("btn-my-car");
+
+    try {
+      const savedNas = JSON.parse(localStorage.getItem("dokomademap_nas_v1") || "{}");
+      if (savedNas.url) nasUrlEl.value = savedNas.url;
+      if (savedNas.token) nasTokEl.value = savedNas.token;
+    } catch (_) {}
+
+    const activateCarPurple = async (lat, lon, soc, updatedAt = "") => {
+      if (dataReadyPromise) await dataReadyPromise;
+      const snap = findNearestNode(lat, lon, Infinity);
+      if (snap.node < 0) {
+        nasMsgEl.textContent = "该位置不在日本路网范围内。";
+        nasMsgEl.classList.remove("hidden");
+        return false;
+      }
+      carState = { active: true, lat, lon, node: snap.node, soc, updatedAt };
+      state.departPct = soc;
+      syncControlsFromState();
+      saveState();
+      selectedScIdx = -1;
+      selectedNacsIdx = -1;
+      btnMyCar.setAttribute("aria-pressed", "true");
+      nasModal.classList.add("hidden");
+      updateReachability({ animate: true, pan: true });
+      return true;
+    };
+
+    btnMyCar.addEventListener("click", () => nasModal.classList.remove("hidden"));
+    document.getElementById("btn-close-nas").addEventListener("click", () => nasModal.classList.add("hidden"));
+    nasModal.addEventListener("click", (e) => {
+      if (e.target === nasModal) nasModal.classList.add("hidden");
+    });
+
+    document.getElementById("btn-nas-sync").addEventListener("click", async () => {
+      const url = nasUrlEl.value.trim();
+      const token = nasTokEl.value.trim();
+      if (!url) {
+        nasMsgEl.textContent = "请先填写你的 NAS 接口地址（例如 https://tesla.你的域名/status）。";
+        nasMsgEl.classList.remove("hidden");
+        return;
+      }
+      localStorage.setItem("dokomademap_nas_v1", JSON.stringify({ url, token }));
+      nasMsgEl.textContent = "正在从 NAS 同步车辆最新状态…";
+      nasMsgEl.classList.remove("hidden");
+      try {
+        const headers = token ? { Authorization: `Bearer ${token}` } : {};
+        const resp = await fetch(url, { headers });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const d = await resp.json();
+        if (typeof d.soc !== "number" || typeof d.lat !== "number" || typeof d.lon !== "number") {
+          throw new Error("返回数据缺少 soc / lat / lon");
+        }
+        if (d.full_range_km) state.fullRangeKm = Math.max(450, Math.min(680, Math.round(d.full_range_km / 10) * 10));
+        if (d.wh_per_km) state.whPerKm = Math.max(120, Math.min(240, Math.round(d.wh_per_km / 5) * 5));
+        await activateCarPurple(d.lat, d.lon, Math.max(5, Math.min(100, Math.round(d.soc))), d.updated_at || "NAS");
+      } catch (err) {
+        nasMsgEl.textContent = `同步失败：${err.message}（请检查 NAS 服务和隧道是否正常）`;
+      }
+    });
+
+    document.getElementById("btn-car-gps-test").addEventListener("click", () => {
+      nasMsgEl.textContent = "正在获取当前定位…";
+      nasMsgEl.classList.remove("hidden");
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => activateCarPurple(pos.coords.latitude, pos.coords.longitude, state.departPct, "GPS"),
+          () => {
+            const c = map ? map.getCenter() : { lat: 35.6812, lng: 139.7671 };
+            activateCarPurple(c.lat, c.lng, state.departPct, "地图中心");
+          },
+          { timeout: 5000 }
+        );
+      } else {
+        const c = map ? map.getCenter() : { lat: 35.6812, lng: 139.7671 };
+        activateCarPurple(c.lat, c.lng, state.departPct, "地图中心");
+      }
+    });
+
+    document.getElementById("btn-car-clear").addEventListener("click", () => {
+      carState.active = false;
+      btnMyCar.setAttribute("aria-pressed", "false");
+      nasModal.classList.add("hidden");
       updateReachability();
     });
 
@@ -2371,7 +2615,21 @@
         ensureReachOverlaySource();
         updateCampLayer();
         if (currentMode === "camp") renderCampViewList();
-        if (selectedScIdx >= 0) updateReachability({ animate: true, pan: false });
+        const qp = new URLSearchParams(window.location.search);
+        const qSoc = Number(qp.get("soc"));
+        const qLat = Number(qp.get("lat"));
+        const qLon = Number(qp.get("lon"));
+        if (qSoc > 0 && qSoc <= 100) {
+          state.departPct = Math.round(qSoc);
+          if (qLat && qLon) {
+            const snap = findNearestNode(qLat, qLon, Infinity);
+            if (snap.node >= 0) {
+              carState = { active: true, lat: qLat, lon: qLon, node: snap.node, soc: state.departPct, updatedAt: "URL" };
+              document.getElementById("btn-my-car").setAttribute("aria-pressed", "true");
+            }
+          }
+        }
+        if (selectedScIdx >= 0 || carState.active) updateReachability({ animate: true, pan: carState.active });
       }).catch((err) => {
         progressText.textContent = "路网加载失败";
         console.error(err);

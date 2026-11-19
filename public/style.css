@@ -330,6 +330,48 @@ body.theme-light .vignette { display: none; }
   display: inline-block;
 }
 
+.purple-legend {
+  margin-top: 6px;
+  font-size: 11px;
+  color: #c084fc;
+}
+.purple-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.purple-legend .dot-purple {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: #a855f7;
+  display: inline-block;
+}
+
+.pill-btn.ghost.purple-on[aria-pressed="true"] {
+  background: rgba(168, 85, 247, 0.24);
+  color: #d8b4fe;
+  border: 1px solid rgba(168, 85, 247, 0.55);
+}
+
+.nas-form { display: flex; flex-direction: column; gap: 10px; }
+.nas-field span { display: block; font-size: 12px; color: var(--text-2); margin-bottom: 4px; }
+.nas-field input {
+  width: 100%;
+  border: 1px solid var(--glass-border);
+  background: var(--sub);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 9px 11px;
+  font-size: 13px;
+  outline: none;
+}
+.nas-field input:focus { border-color: #a855f7; }
+.nas-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.nas-status-msg {
+  font-size: 12px;
+  padding: 7px 10px;
+  border-radius: 9px;
+  background: var(--sub);
+  color: var(--text-2);
+}
+
 /* ---------- Drawer ---------- */
 .drawer {
   position: fixed;

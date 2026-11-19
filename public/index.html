@@ -11,7 +11,7 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23e31937'/><path d='M17.5 5l-8 12h5.5l-1.5 10 9-13h-5.5z' fill='%23fff'/></svg>" />
   <link rel="preconnect" href="https://tiles.openfreemap.org" crossorigin />
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
-  <link rel="stylesheet" href="style.css?v=20261119i" />
+  <link rel="stylesheet" href="style.css?v=20261119j" />
 </head>
 <body>
   <div id="map"></div>
@@ -40,6 +40,7 @@
     </div>
 
     <div class="topbar-actions">
+      <button id="btn-my-car" class="pill-btn ghost purple-on" type="button" aria-pressed="false" title="同步 NAS 车辆电量并显示紫色可达辐射">🚗 我的车</button>
       <button id="btn-toggle-nacs" class="pill-btn ghost" type="button" aria-pressed="false" title="显示/隐藏免转接第三方 NACS 充电桩点位">🔌 第三方桩</button>
       <button id="btn-locate" class="icon-btn" type="button" title="定位并查找附近超充站" aria-label="定位附近超充">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" fill="currentColor"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
@@ -122,6 +123,9 @@
       </div>
       <div id="nacs-legend" class="nacs-legend hidden">
         <span><i class="dot-nacs"></i>蓝色区域：第三方 NACS 桩新增辐射范围</span>
+      </div>
+      <div id="purple-legend" class="purple-legend hidden">
+        <span><i class="dot-purple"></i>紫色区域：我的车当前电量可达范围</span>
       </div>
     </div>
 
@@ -390,6 +394,37 @@
     </div>
   </div>
 
+  <!-- NAS Car Sync Modal -->
+  <div id="nas-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="nas-modal-title">
+    <div class="modal-card glass">
+      <div class="modal-header">
+        <h2 id="nas-modal-title">🚗 同步我的车（NAS TeslaMate）</h2>
+        <button id="btn-close-nas" class="icon-btn sm" type="button" aria-label="关闭">
+          <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <p>连接你 NAS 上的 TeslaMate 只读接口后，将自动同步车辆实时位置与电量，并在地图上以<strong style="color:#c084fc">紫色辐射范围</strong>标出「你现在剩下的电量能去哪里」。配置仅保存在你的浏览器本地。</p>
+        <div class="nas-form">
+          <label class="nas-field">
+            <span>NAS 接口地址（/status）</span>
+            <input id="nas-url" type="url" placeholder="例如：https://tesla.你的域名/status" />
+          </label>
+          <label class="nas-field">
+            <span>访问密钥（BRIDGE_TOKEN）</span>
+            <input id="nas-token" type="password" placeholder="你在 NAS .env 设置的密钥" />
+          </label>
+          <div id="nas-status-msg" class="nas-status-msg hidden"></div>
+          <div class="nas-actions">
+            <button id="btn-nas-sync" class="pill-btn" type="button">从 NAS 同步并显示紫色辐射</button>
+            <button id="btn-car-gps-test" class="pill-btn ghost" type="button">用当前定位 + 面板电量预览紫色辐射</button>
+          </div>
+          <button id="btn-car-clear" class="text-btn" type="button" style="margin-top:8px">清除我的车辆紫色辐射</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Info Modal -->
   <div id="info-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
     <div class="modal-card glass">
@@ -413,6 +448,6 @@
   </div>
 
   <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
-  <script src="app.js?v=20261119i"></script>
+  <script src="app.js?v=20261119j"></script>
 </body>
 </html>
