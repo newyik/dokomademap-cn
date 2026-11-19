@@ -2429,8 +2429,30 @@
         }
         touchStartY = null;
       }, { passive: true });
+      // 电脑：用鼠标在卡片上往下拖收起、往上拖展开；点顶部横条切换
+      let mouseStartY = null;
+      let mouseHandledAt = 0;
+      statusCardEl.addEventListener("pointerdown", (e) => {
+        if (e.pointerType !== "mouse" || e.target.closest("input, button, select, a")) return;
+        mouseStartY = e.clientY;
+      });
+      window.addEventListener("pointerup", (e) => {
+        if (mouseStartY === null) return;
+        const dy = e.clientY - mouseStartY;
+        mouseStartY = null;
+        mouseHandledAt = Date.now();
+        const rect = statusCardEl.getBoundingClientRect();
+        const onHandle = Math.abs(dy) < 6 && e.clientY - rect.top < 20;
+        if (dy > 40 || (onHandle && !statusCardEl.classList.contains("peek"))) {
+          statusCardEl.classList.add("peek");
+          statusCardEl.scrollTop = 0;
+        } else if (dy < -40 || onHandle) {
+          statusCardEl.classList.remove("peek");
+        }
+      });
       // 收起状态下点一下也能展开
       statusCardEl.addEventListener("click", (e) => {
+        if (Date.now() - mouseHandledAt < 300) return;
         if (statusCardEl.classList.contains("peek") && !e.target.closest("button")) {
           statusCardEl.classList.remove("peek");
         }
