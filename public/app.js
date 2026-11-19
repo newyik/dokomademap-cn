@@ -548,8 +548,7 @@
     document.getElementById("metric-kwh").textContent = `${(budgetWh / 1000.0).toFixed(1)} kWh`;
     const flatKm = budgetWh > 0 ? (budgetWh / (state.whPerKm * winterMult)) / (state.roundTrip ? 2.0 : 1.0) : 0;
     document.getElementById("metric-range").textContent = `${Math.round(flatKm)} km`;
-    document.getElementById("metric-sc-count").textContent =
-      state.showNacs ? `${reachableScCount} 超充 + ${reachableNacsCount} NACS` : `${reachableScCount} 座`;
+    document.getElementById("metric-sc-count").textContent = `${reachableScCount} 座`;
     const gauge = document.getElementById("soc-gauge");
     if (gauge) {
       gauge.style.setProperty("--soc-from", state.arrivePct + "%");
@@ -635,7 +634,30 @@
     return reachableCount;
   }
 
-  function updateNacsLayer() { return 0; }
+  let showNacsPins = false;
+  function updateNacsLayer() {
+    if (!map) return 0;
+    const src = map.getSource("nacs-chargers");
+    if (!src) return 0;
+    if (!showNacsPins || currentMode !== "map" || !nacsChargers.length) {
+      src.setData({ type: "FeatureCollection", features: [] });
+      return 0;
+    }
+    const features = nacsChargers.map((n, idx) => ({
+      type: "Feature",
+      geometry: { type: "Point", coordinates: [n.lon, n.lat] },
+      properties: {
+        idx,
+        name: n.name,
+        brand: n.brand,
+        kw: n.kw,
+        hours: n.hours || "",
+        addr: n.addr || "",
+      },
+    }));
+    src.setData({ type: "FeatureCollection", features });
+    return features.length;
+  }
 
   function findFirstSymbolLayerId() {
     const layers = map.getStyle().layers || [];
@@ -953,20 +975,23 @@
       const p = e.features[0].properties;
       let html = `<strong>${p.name}</strong><br/>${p.brand}（免转接） · ${p.kw || "?"} kW`;
       if (p.hours) html += `<br/>${p.hours}`;
-      if (p.status === 2) html += `<br/><span style="color:#4ade80">当前出发起点</span>`;
-      else if (p.status === 1 && p.arrivalPct >= 0) html += `<br/><span style="color:#4ade80">预计到达剩余约 ${p.arrivalPct}%</span>`;
       hoverPopup.setLngLat(e.features[0].geometry.coordinates).setHTML(html).addTo(map);
     });
     map.on("mouseleave", "nacs-hit", () => {
       map.getCanvas().style.cursor = "";
       hoverPopup.remove();
     });
-    map.on("click", "nacs-hit", async (e) => {
+    map.on("click", "nacs-hit", (e) => {
       if (map.queryRenderedFeatures(e.point, { layers: ["sc-hit"] }).length > 0) return;
-      selectedNacsIdx = e.features[0].properties.idx;
-      selectedScIdx = -1;
-      if (dataReadyPromise) await dataReadyPromise;
-      updateReachability({ animate: true, pan: true });
+      const p = e.features[0].properties;
+      new maplibregl.Popup()
+        .setLngLat(e.features[0].geometry.coordinates)
+        .setHTML(
+          `<strong>${p.name}</strong><br/>${p.brand}（免转接） · ${p.kw || "?"} kW` +
+          (p.hours ? `<br/>营业时间：${p.hours}` : "") +
+          (p.addr ? `<br/>地址：${p.addr}` : "")
+        )
+        .addTo(map);
     });
 
     const onFerryEnter = () => { map.getCanvas().style.cursor = "pointer"; };
@@ -1630,6 +1655,7 @@
     // In camp mode, show full map first with #camp-map-bar; hide #camp-view until user clicks a spot or search
     document.getElementById("camp-view").classList.add("hidden");
     document.getElementById("camp-map-bar").classList.toggle("hidden", !isCamp);
+    document.getElementById("btn-toggle-nacs").classList.toggle("hidden", isCamp);
     document.getElementById("status-card").classList.toggle("hidden", isCamp);
     document.getElementById("drawer").classList.toggle("hidden", isCamp);
     document.getElementById("btn-toggle-drawer").classList.toggle("hidden", isCamp);
@@ -1984,6 +2010,13 @@
     // Mode tabs (⚡ 超充地图 <-> ⛺ 车中泊)
     document.getElementById("tab-map").addEventListener("click", () => switchMode("map"));
     document.getElementById("tab-camp").addEventListener("click", () => switchMode("camp"));
+
+    const btnNacs = document.getElementById("btn-toggle-nacs");
+    btnNacs.addEventListener("click", () => {
+      showNacsPins = !showNacsPins;
+      btnNacs.setAttribute("aria-pressed", String(showNacsPins));
+      updateNacsLayer();
+    });
 
     // Dedicated Camp View & Camp Map Bar bindings
     const syncFilterChips = (filterVal) => {

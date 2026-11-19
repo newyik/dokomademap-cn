@@ -11,7 +11,7 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23e31937'/><path d='M17.5 5l-8 12h5.5l-1.5 10 9-13h-5.5z' fill='%23fff'/></svg>" />
   <link rel="preconnect" href="https://tiles.openfreemap.org" crossorigin />
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
-  <link rel="stylesheet" href="style.css?v=20261119g" />
+  <link rel="stylesheet" href="style.css?v=20261119h" />
 </head>
 <body>
   <div id="map"></div>
@@ -40,6 +40,7 @@
     </div>
 
     <div class="topbar-actions">
+      <button id="btn-toggle-nacs" class="pill-btn ghost" type="button" aria-pressed="false" title="显示/隐藏免转接第三方 NACS 充电桩点位">🔌 第三方桩</button>
       <button id="btn-locate" class="icon-btn" type="button" title="定位并查找附近超充站" aria-label="定位附近超充">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" fill="currentColor"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
       </button>
@@ -409,6 +410,6 @@
   </div>
 
   <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
-  <script src="app.js?v=20261119g"></script>
+  <script src="app.js?v=20261119h"></script>
 </body>
 </html>

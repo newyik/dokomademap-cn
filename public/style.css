@@ -152,10 +152,16 @@ body.theme-light .vignette { display: none; }
 }
 .pill-btn:hover { filter: brightness(1.08); }
 .pill-btn:active { transform: scale(0.96); }
-.pill-btn[aria-expanded="false"] {
+.pill-btn[aria-expanded="false"],
+.pill-btn.ghost {
   background: var(--sub-2);
   color: var(--text);
   box-shadow: none;
+}
+.pill-btn.ghost[aria-pressed="true"] {
+  background: rgba(56, 189, 248, 0.22);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.5);
 }
 
 .text-btn {
