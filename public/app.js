@@ -1047,11 +1047,12 @@
     map.on("click", "nacs-hit", async (e) => {
       if (map.queryRenderedFeatures(e.point, { layers: ["sc-hit"] }).length > 0) return;
       const p = e.features[0].properties;
+      const coords = e.features[0].geometry.coordinates.slice();
       selectedNacsIdx = (selectedNacsIdx === p.idx) ? -1 : p.idx;
       if (dataReadyPromise) await dataReadyPromise;
       updateReachability({ animate: selectedNacsIdx >= 0, pan: false, animateNacsOnly: selectedScIdx >= 0 });
       new maplibregl.Popup()
-        .setLngLat(e.features[0].geometry.coordinates)
+        .setLngLat(coords)
         .setHTML(
           `<strong>${p.name}</strong><br/>${p.brand}（免转接） · ${p.kw || "?"} kW` +
           (p.hours ? `<br/>营业时间：${p.hours}` : "") +
