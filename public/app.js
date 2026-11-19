@@ -2767,6 +2767,7 @@
       drawer.classList.add("collapsed");
       btnDrawer.setAttribute("aria-expanded", "false");
     };
+    document.getElementById("btn-drawer-done").addEventListener("click", closeDrawer);
     // 手机上点地图空白处自动收起参数面板，避免挡住地图
     document.getElementById("map").addEventListener("pointerdown", () => {
       if (window.innerWidth <= 760 && !drawer.classList.contains("collapsed")) closeDrawer();
