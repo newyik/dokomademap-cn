@@ -1,4 +1,4 @@
-# NAS 部署指南（TeslaMate + 只读状态桥接）
+# NAS 部署指南（TeslaMate + 状态桥接）
 
 将本目录（`nas/`）复制到你的 NAS 上（群晖 Container Manager / 威联通 Container Station / 飞牛 / 通用 Docker 均可），即可把你的 Model 3 实时电量、位置与近期电耗同步到「超充可达」网页。
 
@@ -25,3 +25,26 @@
    - 打开 `https://newyik.github.io/dokomademap-cn/`，点击顶部 **`🚗 我的车`**，填入接口地址（例如 `https://tesla.你的域名/status`）和 `BRIDGE_TOKEN`，点击「同步并查看紫色辐射」即可。
 
 > 接口地址和密钥**只保存在你自己的浏览器本地存储**，不会上传到任何第三方服务器或 GitHub。
+
+## 最近行程（新增）
+
+网页里打开「我的车」后，点卡片上的行程图标（或底部胶囊左边的图标），可以看最近 20 段行程：列表带轨迹缩略图，点一段就在地图上画出路线（绿色起点 → 紫色终点），也可以删除。
+
+桥接接口新增了这几个地址（和 `/status` 用同一个前缀、同一个密钥）：
+
+| 地址 | 作用 |
+|---|---|
+| `GET /drives?limit=20` | 最近行程列表，含简化轨迹 |
+| `GET /drives/<id>` | 单段行程的完整轨迹 |
+| `DELETE /drives/<id>` | **永久删除**这段行程和它的轨迹点 |
+
+- 删除会直接改 TeslaMate 数据库，删了找不回来，TeslaMate 自己的统计也会少掉这一段。正在进行中的行程不能删。
+- 没设置 `BRIDGE_TOKEN` 时，删除功能自动关闭。
+
+### 已经部署过的，怎么更新
+
+1. 把新的 `bridge.py` 覆盖到 NAS 上原来的位置。
+2. 重启桥接容器：
+   ```bash
+   docker compose restart tesla-sync-bridge
+   ```

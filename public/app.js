@@ -676,6 +676,8 @@
     if (btnCarRefreshEl) btnCarRefreshEl.classList.toggle("hidden", !hasCar || Boolean(sc));
     const btnCarSettingsEl = document.getElementById("btn-car-settings");
     if (btnCarSettingsEl) btnCarSettingsEl.classList.toggle("hidden", !hasCar || Boolean(sc));
+    const btnCarTripsEl = document.getElementById("btn-car-trips");
+    if (btnCarTripsEl) btnCarTripsEl.classList.toggle("hidden", !hasCar || Boolean(sc));
 
     if (sc) {
       updateFerryLayer(goUsed, budgetWh);
@@ -2613,6 +2615,266 @@
       });
     }
 
+    // ================= 最近行程 =================
+    const tripsModal = document.getElementById("trips-modal");
+    const tripsListEl = document.getElementById("trips-list");
+    const tripsSummaryEl = document.getElementById("trips-summary");
+    const tripBar = document.getElementById("trip-bar");
+    let trips = [];
+    let selectedTripId = null;
+
+    const getNas = () => {
+      try { return JSON.parse(localStorage.getItem("dokomademap_nas_v1") || "{}"); } catch (_) { return {}; }
+    };
+    // 车辆接口地址是 …/status，行程接口在同一个前缀下：…/drives
+    const nasBase = (url) => url.replace(/\/status\/?(\?.*)?$/, "").replace(/\/+$/, "");
+    const nasFetch = async (path, opts = {}) => {
+      const nas = getNas();
+      if (!nas.url) throw new Error("还没有设置 NAS 接口");
+      const headers = nas.token ? { Authorization: `Bearer ${nas.token}` } : {};
+      const resp = await fetch(nasBase(nas.url) + path, { ...opts, headers });
+      if (resp.status === 404 && path.startsWith("/drives") && !opts.method) {
+        throw new Error("NAS 上的接口还是旧版，请先更新 bridge.py");
+      }
+      if (resp.status === 401) throw new Error("访问密钥不对");
+      if (resp.status === 403) throw new Error("NAS 没设置访问密钥，不允许删除");
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      return resp.json();
+    };
+
+    const fmtDay = (iso) => {
+      const d = new Date(iso);
+      const today = new Date();
+      const y = new Date(); y.setDate(today.getDate() - 1);
+      const hm = d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
+      if (d.toDateString() === today.toDateString()) return `今天 ${hm}`;
+      if (d.toDateString() === y.toDateString()) return `昨天 ${hm}`;
+      return `${d.getMonth() + 1}月${d.getDate()}日 ${hm}`;
+    };
+    const fmtDur = (m) => (m == null ? "—" : m >= 60 ? `${Math.floor(m / 60)} 小时 ${m % 60} 分` : `${m} 分钟`);
+    const esc = (t) => String(t ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    const tripTitle = (t) => `${t.from || "未知地点"} → ${t.to || "未知地点"}`;
+    const tripMeta = (t) => {
+      const parts = [fmtDay(t.start), `${t.distance_km ?? "—"} km`, fmtDur(t.duration_min)];
+      if (t.soc_start != null && t.soc_end != null) parts.push(`电量 ${t.soc_start}→${t.soc_end}%`);
+      if (t.kwh != null && t.kwh > 0) parts.push(`约 ${t.kwh} kWh`);
+      return parts.join(" · ");
+    };
+
+    // 小缩略图：把轨迹画成一条线
+    const sparkPath = (path) => {
+      if (!path || path.length < 2) return "";
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const [x, y] of path) { minX = Math.min(minX, x); maxX = Math.max(maxX, x); minY = Math.min(minY, y); maxY = Math.max(maxY, y); }
+      const w = 56, h = 40, pad = 5;
+      const span = Math.max(maxX - minX, maxY - minY) || 1e-6;
+      const sx = (w - pad * 2) / span, sy = (h - pad * 2) / span;
+      const ox = (w - (maxX - minX) * sx) / 2, oy = (h - (maxY - minY) * sy) / 2;
+      const pts = path.map(([x, y]) => `${(ox + (x - minX) * sx).toFixed(1)},${(h - oy - (y - minY) * sy).toFixed(1)}`);
+      const [sxp, syp] = pts[0].split(","), [exp, eyp] = pts[pts.length - 1].split(",");
+      return `<svg class="trip-spark" viewBox="0 0 ${w} ${h}" aria-hidden="true"><polyline points="${pts.join(" ")}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="${sxp}" cy="${syp}" r="2.6" fill="#22c55e"/><circle cx="${exp}" cy="${eyp}" r="2.6" fill="#a855f7"/></svg>`;
+    };
+
+    const ensureTripLayers = () => {
+      if (!map) return false;
+      if (!map.getStyle()) {
+        // 底图还没准备好：等地图空闲了再画
+        map.once("idle", redrawTrips);
+        return false;
+      }
+      if (!map.getSource("trips-all")) {
+        map.addSource("trips-all", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+        map.addLayer({
+          id: "trips-all-line",
+          type: "line",
+          source: "trips-all",
+          layout: { "line-cap": "round", "line-join": "round" },
+          paint: { "line-color": "#a855f7", "line-width": ["interpolate", ["linear"], ["zoom"], 5, 2, 12, 4], "line-opacity": 0.45 },
+        });
+      }
+      if (!map.getSource("trip-sel")) {
+        map.addSource("trip-sel", { type: "geojson", lineMetrics: true, data: { type: "FeatureCollection", features: [] } });
+        map.addLayer({
+          id: "trip-sel-casing",
+          type: "line",
+          source: "trip-sel",
+          filter: ["==", ["geometry-type"], "LineString"],
+          layout: { "line-cap": "round", "line-join": "round" },
+          paint: { "line-color": "#ffffff", "line-width": ["interpolate", ["linear"], ["zoom"], 5, 5, 12, 9], "line-opacity": 0.9 },
+        });
+        map.addLayer({
+          id: "trip-sel-line",
+          type: "line",
+          source: "trip-sel",
+          filter: ["==", ["geometry-type"], "LineString"],
+          layout: { "line-cap": "round", "line-join": "round" },
+          paint: {
+            "line-width": ["interpolate", ["linear"], ["zoom"], 5, 3, 12, 6],
+            "line-gradient": ["interpolate", ["linear"], ["line-progress"], 0, "#22c55e", 0.5, "#3e8bff", 1, "#a855f7"],
+          },
+        });
+        map.addLayer({
+          id: "trip-sel-ends",
+          type: "circle",
+          source: "trip-sel",
+          filter: ["==", ["geometry-type"], "Point"],
+          paint: {
+            "circle-radius": 7,
+            "circle-color": ["match", ["get", "kind"], "start", "#22c55e", "#a855f7"],
+            "circle-stroke-width": 3,
+            "circle-stroke-color": "#ffffff",
+          },
+        });
+        map.on("click", "trips-all-line", (e) => {
+          const id = e.features?.[0]?.properties?.id;
+          if (id != null) selectTrip(Number(id), { fit: false });
+        });
+        map.on("mouseenter", "trips-all-line", () => { map.getCanvas().style.cursor = "pointer"; });
+        map.on("mouseleave", "trips-all-line", () => { map.getCanvas().style.cursor = ""; });
+      }
+      return true;
+    };
+
+    const redrawTrips = () => {
+      if (!ensureTripLayers()) return;
+      const show = selectedTripId != null;
+      map.getSource("trips-all").setData({
+        type: "FeatureCollection",
+        features: show
+          ? trips.filter((t) => t.path && t.path.length > 1 && t.id !== selectedTripId).map((t) => ({
+              type: "Feature", properties: { id: t.id }, geometry: { type: "LineString", coordinates: t.path },
+            }))
+          : [],
+      });
+      const t = trips.find((x) => x.id === selectedTripId);
+      const feats = [];
+      if (t && t.path && t.path.length > 1) {
+        feats.push({ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: t.path } });
+        feats.push({ type: "Feature", properties: { kind: "start" }, geometry: { type: "Point", coordinates: t.path[0] } });
+        feats.push({ type: "Feature", properties: { kind: "end" }, geometry: { type: "Point", coordinates: t.path[t.path.length - 1] } });
+      }
+      map.getSource("trip-sel").setData({ type: "FeatureCollection", features: feats });
+    };
+    window.__redrawTrips = () => setTimeout(redrawTrips, 0);
+
+    const fitTrip = (t) => {
+      if (!map || !t.path || t.path.length < 2) return;
+      const b = new maplibregl.LngLatBounds(t.path[0], t.path[0]);
+      t.path.forEach((p) => b.extend(p));
+      const mobile = window.innerWidth <= 760;
+      map.fitBounds(b, {
+        padding: mobile ? { top: 130, bottom: 150, left: 40, right: 40 } : { top: 110, bottom: 120, left: 400, right: 80 },
+        maxZoom: 14,
+        duration: 800,
+      });
+    };
+
+    const renderTripsList = () => {
+      if (!trips.length) {
+        tripsSummaryEl.textContent = "";
+        tripsListEl.innerHTML = `<div class="trips-empty">还没有行程记录</div>`;
+        return;
+      }
+      const km = trips.reduce((a, t) => a + (t.distance_km || 0), 0);
+      const kwh = trips.reduce((a, t) => a + (t.kwh > 0 ? t.kwh : 0), 0);
+      tripsSummaryEl.innerHTML = `最近 <b>${trips.length}</b> 段 · 共 <b>${Math.round(km)}</b> km${kwh > 0 ? ` · 约 <b>${Math.round(kwh)}</b> kWh` : ""}`;
+      tripsListEl.innerHTML = trips.map((t) => `
+        <div class="trip-item${t.id === selectedTripId ? " active" : ""}" data-id="${t.id}">
+          <button class="trip-open" type="button" data-id="${t.id}">
+            ${sparkPath(t.path)}
+            <span class="trip-text">
+              <span class="trip-title">${esc(tripTitle(t))}</span>
+              <span class="trip-meta">${esc(tripMeta(t))}</span>
+            </span>
+          </button>
+          <button class="trip-del" type="button" data-id="${t.id}" title="删除这段行程" aria-label="删除这段行程">
+            <svg viewBox="0 0 24 24"><path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        </div>`).join("");
+    };
+
+    const loadTrips = async () => {
+      tripsSummaryEl.textContent = "";
+      tripsListEl.innerHTML = `<div class="trips-empty">正在从 NAS 读取行程…</div>`;
+      try {
+        const d = await nasFetch("/drives?limit=20");
+        trips = Array.isArray(d.drives) ? d.drives : [];
+        renderTripsList();
+        redrawTrips();
+      } catch (err) {
+        tripsListEl.innerHTML = `<div class="trips-empty error">读取失败：${esc(err.message)}</div>`;
+      }
+    };
+
+    const openTrips = () => {
+      if (!getNas().url) {
+        nasModal.classList.remove("hidden");
+        return;
+      }
+      tripsModal.classList.remove("hidden");
+      loadTrips();
+    };
+
+    const selectTrip = (id, { fit = true } = {}) => {
+      const t = trips.find((x) => x.id === id);
+      if (!t) return;
+      selectedTripId = id;
+      tripsModal.classList.add("hidden");
+      // 看行程时把其他卡片收起来，地图留给轨迹
+      document.getElementById("status-card").classList.add("hidden");
+      document.getElementById("car-pill-bar")?.classList.add("hidden");
+      const drawerEl = document.getElementById("drawer");
+      drawerEl.classList.add("collapsed");
+      document.getElementById("btn-toggle-drawer").setAttribute("aria-expanded", "false");
+      if (map.getLayer("reach-overlay-layer")) map.setLayoutProperty("reach-overlay-layer", "visibility", "none");
+      document.getElementById("trip-bar-title").textContent = tripTitle(t);
+      document.getElementById("trip-bar-meta").textContent = tripMeta(t);
+      tripBar.classList.remove("hidden");
+      redrawTrips();
+      if (fit) fitTrip(t);
+    };
+
+    const closeTripView = () => {
+      selectedTripId = null;
+      tripBar.classList.add("hidden");
+      redrawTrips();
+      updateReachability();
+      if (cardMinimized) document.getElementById("car-pill-bar")?.classList.remove("hidden");
+      else document.getElementById("status-card").classList.remove("hidden");
+    };
+
+    const deleteTrip = async (id) => {
+      const t = trips.find((x) => x.id === id);
+      if (!t) return;
+      const ok = window.confirm(`永久删除这段行程？\n\n${tripTitle(t)}\n${tripMeta(t)}\n\n会从 NAS 的 TeslaMate 里一起删掉轨迹，删了就找不回来。`);
+      if (!ok) return;
+      try {
+        await nasFetch(`/drives/${id}`, { method: "DELETE" });
+        trips = trips.filter((x) => x.id !== id);
+        if (selectedTripId === id) closeTripView();
+        renderTripsList();
+        redrawTrips();
+        showToast("已删除这段行程");
+      } catch (err) {
+        showToast(`删除失败：${err.message}`, 4000);
+      }
+    };
+
+    tripsListEl.addEventListener("click", (e) => {
+      const del = e.target.closest(".trip-del");
+      if (del) { deleteTrip(Number(del.dataset.id)); return; }
+      const open = e.target.closest(".trip-open");
+      if (open) selectTrip(Number(open.dataset.id));
+    });
+    document.getElementById("btn-car-trips").addEventListener("click", openTrips);
+    document.getElementById("btn-car-pill-trips").addEventListener("click", openTrips);
+    document.getElementById("btn-trips-reload").addEventListener("click", loadTrips);
+    document.getElementById("btn-close-trips").addEventListener("click", () => tripsModal.classList.add("hidden"));
+    tripsModal.addEventListener("click", (e) => { if (e.target === tripsModal) tripsModal.classList.add("hidden"); });
+    document.getElementById("btn-trip-list").addEventListener("click", () => { tripsModal.classList.remove("hidden"); renderTripsList(); });
+    document.getElementById("btn-trip-delete").addEventListener("click", () => { if (selectedTripId != null) deleteTrip(selectedTripId); });
+    document.getElementById("btn-trip-close").addEventListener("click", closeTripView);
+
     document.getElementById("btn-close-nas").addEventListener("click", () => nasModal.classList.add("hidden"));
     nasModal.addEventListener("click", (e) => {
       if (e.target === nasModal) nasModal.classList.add("hidden");
@@ -3047,6 +3309,8 @@
 
       map.on("style.load", () => {
         setupMapLayers();
+        // 换配色会重载底图，行程线要重新画上
+        if (window.__redrawTrips) window.__redrawTrips();
       });
 
       map.on("load", () => {

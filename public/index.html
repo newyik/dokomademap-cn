@@ -11,7 +11,7 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23e31937'/><path d='M17.5 5l-8 12h5.5l-1.5 10 9-13h-5.5z' fill='%23fff'/></svg>" />
   <link rel="preconnect" href="https://tiles.openfreemap.org" crossorigin />
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
-  <link rel="stylesheet" href="style.css?v=20261119ui9" />
+  <link rel="stylesheet" href="style.css?v=20261119trip1" />
 </head>
 <body>
   <div id="map"></div>
@@ -75,6 +75,7 @@
           <div id="sc-meta" class="sc-meta">—</div>
         </div>
         <div class="status-actions">
+          <button id="btn-car-trips" class="icon-btn sm hidden" type="button" title="最近行程" aria-label="最近行程"><svg viewBox="0 0 24 24"><circle cx="6" cy="18" r="2.2" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="18" cy="6" r="2.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8 18h7.5a3.5 3.5 0 0 0 0-7h-7a3.5 3.5 0 0 1 0-7H16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
           <button id="btn-car-refresh" class="icon-btn sm hidden" type="button" title="刷新车辆最新电量与位置" aria-label="刷新车辆状态">
             <svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </button>
@@ -177,6 +178,7 @@
     </div>
   </aside>
   <div id="car-pill-bar" class="car-pill-bar hidden">
+    <button id="btn-car-pill-trips" class="car-pill-x" type="button" title="最近行程" aria-label="最近行程"><svg viewBox="0 0 24 24"><circle cx="6" cy="18" r="2.2" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="18" cy="6" r="2.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8 18h7.5a3.5 3.5 0 0 0 0-7h-7a3.5 3.5 0 0 1 0-7H16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
     <button id="btn-car-pill" class="car-pill-main" type="button"><span class="car-pill-dot"></span>我的车 · 展开详情</button>
     <button id="btn-car-pill-clear" class="car-pill-x" type="button" title="清除我的车的紫色范围" aria-label="清除我的车的紫色范围"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
   </div>
@@ -447,6 +449,40 @@
     </div>
   </div>
 
+  <!-- 最近行程 -->
+  <div id="trips-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="trips-title">
+    <div class="modal-card glass trips-card">
+      <div class="modal-header">
+        <h2 id="trips-title">最近行程</h2>
+        <div class="trips-head-actions">
+          <button id="btn-trips-reload" class="icon-btn sm" type="button" title="重新加载" aria-label="重新加载">
+            <svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <button id="btn-close-trips" class="icon-btn sm" type="button" aria-label="关闭">
+            <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+      </div>
+      <div id="trips-summary" class="trips-summary"></div>
+      <div id="trips-list" class="trips-list"></div>
+    </div>
+  </div>
+
+  <!-- 选中行程后的底部信息条 -->
+  <div id="trip-bar" class="trip-bar glass hidden">
+    <div class="trip-bar-main">
+      <div id="trip-bar-title" class="trip-bar-title">—</div>
+      <div id="trip-bar-meta" class="trip-bar-meta">—</div>
+    </div>
+    <div class="trip-bar-actions">
+      <button id="btn-trip-list" class="pill-btn sm ghost" type="button">列表</button>
+      <button id="btn-trip-delete" class="pill-btn sm danger" type="button">删除</button>
+      <button id="btn-trip-close" class="icon-btn sm" type="button" aria-label="关闭行程显示">
+        <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+  </div>
+
   <!-- Info Modal -->
   <div id="info-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
     <div class="modal-card glass">
@@ -470,6 +506,6 @@
   </div>
 
   <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
-  <script src="app.js?v=20261119ui9"></script>
+  <script src="app.js?v=20261119trip1"></script>
 </body>
 </html>
