@@ -928,6 +928,31 @@ body:not(.theme-light) .maplibregl-ctrl-attrib-button { filter: invert(1); }
 }
 .dest-camp-btn:hover { background: rgba(245, 158, 11, 0.22); }
 
+.camp-map-bar {
+  position: fixed;
+  top: 82px;
+  left: 14px;
+  z-index: 18;
+  width: 380px;
+  max-width: calc(100vw - 28px);
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  animation: rise 0.35s var(--ease) both;
+}
+.cmb-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+.cmb-hint {
+  font-size: 12px;
+  color: var(--text-2);
+}
+.camp-map-bar .cv-filters {
+  margin: 10px 0 0;
+}
+
 /* ---------- Dedicated Car Camping (车中泊) Full View ---------- */
 .mode-tabs {
   display: inline-flex;

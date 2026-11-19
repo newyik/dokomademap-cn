@@ -803,15 +803,15 @@
         id: "camp-circles",
         type: "circle",
         source: "camp-spots",
-        minzoom: 5.8,
         paint: {
           "circle-radius": [
             "interpolate",
             ["linear"],
             ["zoom"],
-            6, 2.8,
-            9, 4.5,
-            12, 6.5,
+            4, 3.0,
+            7, 4.4,
+            10, 5.8,
+            13, 7.2,
           ],
           "circle-color": [
             "match",
@@ -820,15 +820,9 @@
             "sa", "#60a5fa",
             "#f59e0b",
           ],
-          "circle-opacity": [
-            "interpolate",
-            ["linear"],
-            ["zoom"],
-            5.8, 0.5,
-            7.5, 0.9,
-          ],
+          "circle-opacity": 0.9,
           "circle-stroke-width": 1,
-          "circle-stroke-color": "rgba(255,255,255,0.7)",
+          "circle-stroke-color": "rgba(255,255,255,0.75)",
         },
       },
       "sc-selected-halo"
@@ -838,7 +832,6 @@
         id: "camp-hit",
         type: "circle",
         source: "camp-spots",
-        minzoom: 5.8,
         paint: {
           "circle-radius": 11,
           "circle-opacity": 0,
@@ -929,7 +922,12 @@
     });
     map.on("click", "camp-hit", (e) => {
       if (map.queryRenderedFeatures(e.point, { layers: ["sc-hit"] }).length > 0) return;
-      selectCampSpot(e.features[0].properties.idx, false);
+      const idx = e.features[0].properties.idx;
+      if (currentMode === "camp") {
+        openCampWorkspace(idx);
+      } else {
+        selectCampSpot(idx, false);
+      }
     });
   }
 
@@ -1381,21 +1379,33 @@
     if (!map) return;
     const src = map.getSource("camp-spots");
     if (!src) return;
-    if (!state.showCamp || !campSpots.length) {
+    const show = currentMode === "camp" || state.showCamp;
+    if (!show || !campSpots.length) {
       src.setData({ type: "FeatureCollection", features: [] });
       return;
     }
-    const features = campSpots.map((c, idx) => ({
-      type: "Feature",
-      geometry: { type: "Point", coordinates: [c.lon, c.lat] },
-      properties: {
-        idx,
-        name: c.name,
-        kind: c.kind,
-        elev: c.elev,
-        sc_km: c.sc_km,
-      },
-    }));
+    const features = [];
+    for (let idx = 0; idx < campSpots.length; idx++) {
+      const c = campSpots[idx];
+      if (currentMode === "camp") {
+        if (cvFilter === "michi" && c.kind !== "michi") continue;
+        if (cvFilter === "rv" && c.kind !== "rv") continue;
+        if (cvFilter === "sa" && c.kind !== "sa") continue;
+        if (cvFilter === "onsen" && !c.o) continue;
+        if (cvFilter === "power" && !c.p) continue;
+      }
+      features.push({
+        type: "Feature",
+        geometry: { type: "Point", coordinates: [c.lon, c.lat] },
+        properties: {
+          idx,
+          name: c.name,
+          kind: c.kind,
+          elev: c.elev,
+          sc_km: c.sc_km,
+        },
+      });
+    }
     src.setData({ type: "FeatureCollection", features });
   }
 
@@ -1525,21 +1535,34 @@
     document.getElementById("tab-camp").classList.toggle("active", isCamp);
     document.getElementById("tab-map").setAttribute("aria-selected", String(!isCamp));
     document.getElementById("tab-camp").setAttribute("aria-selected", String(isCamp));
-    document.getElementById("camp-view").classList.toggle("hidden", !isCamp);
+
+    // In camp mode, show full map first with #camp-map-bar; hide #camp-view until user clicks a spot or search
+    document.getElementById("camp-view").classList.add("hidden");
+    document.getElementById("camp-map-bar").classList.toggle("hidden", !isCamp);
     document.getElementById("status-card").classList.toggle("hidden", isCamp);
     document.getElementById("drawer").classList.toggle("hidden", isCamp);
     document.getElementById("btn-toggle-drawer").classList.toggle("hidden", isCamp);
 
-    if (isCamp) {
-      if (selectedScIdx >= 0 && superchargers[selectedScIdx]) {
-        const sc = superchargers[selectedScIdx];
-        cvRefCoord = { lat: sc.lat, lon: sc.lon, label: sc.name };
-      } else if (map) {
-        const c = map.getCenter();
-        cvRefCoord = { lat: c.lat, lon: c.lng, label: "当前地图中心周边" };
-      }
-      renderCampViewList();
-      if (selectedCampIdx >= 0) selectCampViewSpot(selectedCampIdx);
+    if (map && map.getLayer("sc-circles")) {
+      map.setPaintProperty("sc-circles", "circle-opacity", isCamp ? 0.35 : 1.0);
+      map.setPaintProperty("sc-circles", "circle-stroke-opacity", isCamp ? 0.4 : 1.0);
+    }
+    updateCampLayer();
+  }
+
+  function openCampWorkspace(spotIdx = -1) {
+    if (selectedScIdx >= 0 && superchargers[selectedScIdx]) {
+      const sc = superchargers[selectedScIdx];
+      cvRefCoord = { lat: sc.lat, lon: sc.lon, label: sc.name };
+    } else if (map) {
+      const c = map.getCenter();
+      cvRefCoord = { lat: c.lat, lon: c.lng, label: "当前地图中心周边" };
+    }
+    document.getElementById("camp-map-bar").classList.add("hidden");
+    document.getElementById("camp-view").classList.remove("hidden");
+    renderCampViewList();
+    if (spotIdx >= 0) {
+      selectCampViewSpot(spotIdx);
     }
   }
 
@@ -1874,13 +1897,22 @@
     document.getElementById("tab-map").addEventListener("click", () => switchMode("map"));
     document.getElementById("tab-camp").addEventListener("click", () => switchMode("camp"));
 
-    // Dedicated Camp View bindings
-    document.querySelectorAll("#cv-filters .cv-chip").forEach((chip) => {
-      chip.addEventListener("click", () => {
-        cvFilter = chip.dataset.filter;
-        document.querySelectorAll("#cv-filters .cv-chip").forEach((c) => c.classList.toggle("active", c === chip));
-        renderCampViewList();
+    // Dedicated Camp View & Camp Map Bar bindings
+    const syncFilterChips = (filterVal) => {
+      cvFilter = filterVal;
+      document.querySelectorAll("#cv-filters .cv-chip, #cmb-filters .cv-chip").forEach((c) => {
+        c.classList.toggle("active", c.dataset.filter === cvFilter);
       });
+      updateCampLayer();
+      renderCampViewList();
+    };
+    document.querySelectorAll("#cv-filters .cv-chip, #cmb-filters .cv-chip").forEach((chip) => {
+      chip.addEventListener("click", () => syncFilterChips(chip.dataset.filter));
+    });
+    document.getElementById("btn-open-camp-search").addEventListener("click", () => openCampWorkspace(selectedCampIdx));
+    document.getElementById("btn-cv-back-map").addEventListener("click", () => {
+      document.getElementById("camp-view").classList.add("hidden");
+      document.getElementById("camp-map-bar").classList.remove("hidden");
     });
 
     document.getElementById("cv-search-form").addEventListener("submit", async (e) => {
