@@ -120,7 +120,9 @@
 
     if (map && nextTheme !== currentTheme) {
       currentTheme = nextTheme;
-      map.setStyle(STYLE_URLS[currentTheme]);
+      // 整套重新加载底图，保证会触发 style.load，把超充站等图层重新画上
+      styleReady = false;
+      map.setStyle(STYLE_URLS[currentTheme], { diff: false });
     } else {
       currentTheme = nextTheme;
     }
