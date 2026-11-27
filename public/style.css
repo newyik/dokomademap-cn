@@ -1689,14 +1689,25 @@ body.theme-light .pill-btn.ghost[aria-pressed="true"]:not(.purple-on) { color: #
 }
 
 /* ---------- 最近行程 ---------- */
-.trips-card { max-width: 480px; display: flex; flex-direction: column; padding-bottom: 12px; }
+.trips-card { max-width: 480px; display: flex; flex-direction: column; overflow: hidden; padding-bottom: 12px; }
+.trips-card > .modal-header { flex-shrink: 0; }
 .trips-head-actions { display: flex; gap: 6px; }
-.trips-summary { font-size: 12.5px; color: var(--text-2); margin: -2px 0 10px; min-height: 1em; }
+.trips-summary { flex-shrink: 0; font-size: 12.5px; color: var(--text-2); margin: -2px 0 10px; min-height: 1em; }
 .trips-summary b { color: var(--text); font-variant-numeric: tabular-nums; }
-.trips-list { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; min-height: 80px; }
+.trips-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
 .trips-empty { padding: 28px 8px; text-align: center; font-size: 13px; color: var(--text-3); }
 .trips-empty.error { color: #f87171; }
 .trip-item {
+  flex-shrink: 0;
   display: flex;
   align-items: stretch;
   border: 1px solid var(--glass-border);
@@ -1729,7 +1740,7 @@ body.theme-light .pill-btn.ghost[aria-pressed="true"]:not(.purple-on) { color: #
   background: var(--glass-solid);
   color: #a855f7;
 }
-.trip-text { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.trip-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .trip-title { font-weight: 700; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .trip-meta { font-size: 11.5px; color: var(--text-2); line-height: 1.45; }
 .trip-del {
