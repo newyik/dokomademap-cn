@@ -1713,6 +1713,13 @@ body.theme-light .fp-entry-btn { background: rgba(2, 132, 199, 0.12); color: #02
   padding: 2px 0 10px;
 }
 .period-bar::-webkit-scrollbar { display: none; }
+.period-bar { flex-direction: column; align-items: stretch; gap: 6px; overflow: visible; }
+.period-row {
+  display: flex; align-items: center; gap: 6px;
+  overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch;
+}
+.period-row::-webkit-scrollbar { display: none; }
+.period-row.sub .period-pill { padding: 4px 10px; font-size: 11.5px; }
 .period-pill {
   flex-shrink: 0;
   border: 1px solid var(--glass-border);
@@ -1902,12 +1909,23 @@ body.theme-light .fp-entry-btn { background: rgba(2, 132, 199, 0.12); color: #02
 .fp-title { font-weight: 700; font-size: 14px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .fp-meta { margin-top: 2px; font-size: 11.5px; color: var(--text-2); line-height: 1.45; }
 .fp-actions { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+.fp-main { cursor: pointer; }
+.fp-more { color: #38bdf8; white-space: nowrap; }
+body.theme-light .fp-more { color: #0284c7; }
+.fp-spin {
+  display: inline-block; width: 10px; height: 10px; margin-right: 6px; vertical-align: -1px;
+  border: 2px solid rgba(56, 189, 248, 0.3); border-top-color: #38bdf8; border-radius: 50%;
+  animation: fp-spin 0.8s linear infinite;
+}
+@keyframes fp-spin { to { transform: rotate(360deg); } }
+.footprint-bar.loading .period-bar { opacity: 0.7; }
+.fp-actions .fp-toggle[aria-pressed="true"],
 .fp-actions .pill-btn[aria-pressed="true"] {
   background: rgba(56, 189, 248, 0.2);
   color: #38bdf8;
   border-color: rgba(56, 189, 248, 0.55);
 }
-body.theme-light .fp-actions .pill-btn[aria-pressed="true"] { color: #0284c7; }
+body.theme-light .fp-actions .fp-toggle[aria-pressed="true"] { color: #0284c7; }
 .fp-places {
   display: flex;
   flex-wrap: nowrap;
@@ -1956,9 +1974,8 @@ body.theme-light .fp-place-tag { color: #0284c7; background: rgba(2, 132, 199, 0
     padding: 11px 12px;
     border-radius: 16px;
   }
-  .fp-top { flex-wrap: wrap; gap: 8px; }
-  .fp-actions { width: 100%; }
-  .fp-actions .pill-btn { flex: 1; justify-content: center; }
+  .fp-title { font-size: 13.5px; }
+  .fp-actions { gap: 4px; }
 }
 
 /* ---------- 车中泊：气温自动 + 时间滚轮 ---------- */

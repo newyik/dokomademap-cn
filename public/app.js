@@ -683,6 +683,7 @@
     if (btnCarSettingsEl) btnCarSettingsEl.classList.toggle("hidden", !hasCar || Boolean(sc));
     const btnCarTripsEl = document.getElementById("btn-car-trips");
     if (btnCarTripsEl) btnCarTripsEl.classList.toggle("hidden", !hasCar || Boolean(sc));
+    document.getElementById("btn-car-footprint")?.classList.toggle("hidden", !hasCar || Boolean(sc));
 
     if (sc) {
       updateFerryLayer(goUsed, budgetWh);
@@ -2923,17 +2924,18 @@
           type: "heatmap",
           source: "fp-cells",
           paint: {
-            "heatmap-weight": ["interpolate", ["linear"], ["get", "visits"], 1, 0.35, 5, 0.7, 15, 1.0],
+            "heatmap-weight": ["interpolate", ["linear"], ["get", "visits"], 1, 0.15, 3, 0.4, 10, 0.75, 30, 1.0],
             "heatmap-intensity": ["interpolate", ["linear"], ["zoom"], 5, 0.7, 10, 0.95, 14, 1.15],
             "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 5, 14, 9, 32, 12, 56, 15, 86],
-            "heatmap-opacity": 0.78,
+            "heatmap-opacity": 0.8,
+            // 去过一两次是淡蓝，常去的地方逐渐变紫、变亮粉，深浅对应次数
             "heatmap-color": [
               "interpolate", ["linear"], ["heatmap-density"],
               0, "rgba(56, 189, 248, 0)",
-              0.2, "rgba(56, 189, 248, 0.2)",
-              0.5, "rgba(99, 102, 241, 0.38)",
-              0.8, "rgba(168, 85, 247, 0.52)",
-              1, "rgba(232, 121, 249, 0.65)",
+              0.15, "rgba(56, 189, 248, 0.12)",
+              0.4, "rgba(56, 189, 248, 0.3)",
+              0.7, "rgba(168, 85, 247, 0.5)",
+              1, "rgba(244, 114, 182, 0.75)",
             ],
           },
         });
@@ -2947,9 +2949,9 @@
           layout: { "line-cap": "round", "line-join": "round" },
           paint: {
             "line-color": "#38bdf8",
-            "line-width": ["interpolate", ["linear"], ["zoom"], 6, 14, 10, 34, 13, 62],
-            "line-blur": ["interpolate", ["linear"], ["zoom"], 6, 10, 10, 24, 13, 42],
-            "line-opacity": 0.28,
+            "line-width": ["interpolate", ["linear"], ["zoom"], 6, 8, 10, 18, 13, 30],
+            "line-blur": ["interpolate", ["linear"], ["zoom"], 6, 6, 10, 12, 13, 20],
+            "line-opacity": 0.14,
           },
         });
         map.addLayer({
@@ -2959,9 +2961,9 @@
           layout: { "line-cap": "round", "line-join": "round" },
           paint: {
             "line-color": "#a855f7",
-            "line-width": ["interpolate", ["linear"], ["zoom"], 6, 5, 10, 12, 13, 20],
-            "line-blur": ["interpolate", ["linear"], ["zoom"], 6, 4, 10, 8, 13, 14],
-            "line-opacity": 0.36,
+            "line-width": ["interpolate", ["linear"], ["zoom"], 6, 3, 10, 6, 13, 10],
+            "line-blur": ["interpolate", ["linear"], ["zoom"], 6, 2, 10, 4, 13, 6],
+            "line-opacity": 0.26,
           },
         });
         map.addLayer({
@@ -2979,6 +2981,60 @@
       return true;
     };
 
+    // 迷雾：整张地图盖暗色，去过的格子挖成"洞"，露出原本的地图。
+    // 同一行里相邻的格子先合并成长条，洞的数量少很多，画起来更快。
+    const buildFogGeometry = (cells, dlon, dlat) => {
+      const rows = new Map();
+      cells.forEach(([gx, gy]) => {
+        if (!rows.has(gy)) rows.set(gy, []);
+        rows.get(gy).push(gx);
+      });
+      const holes = [];
+      rows.forEach((xs, gy) => {
+        xs.sort((a, b) => a - b);
+        let start = xs[0];
+        let prev = xs[0];
+        const push = (a, b) => {
+          const x0 = a * dlon, x1 = (b + 1) * dlon, y0 = gy * dlat, y1 = (gy + 1) * dlat;
+          holes.push([[x0, y0], [x0, y1], [x1, y1], [x1, y0], [x0, y0]]);
+        };
+        for (let i = 1; i < xs.length; i++) {
+          if (xs[i] === prev) continue;
+          if (xs[i] !== prev + 1) { push(start, prev); start = xs[i]; }
+          prev = xs[i];
+        }
+        push(start, prev);
+      });
+      return { type: "Polygon", coordinates: [WORLD_RING, ...holes] };
+    };
+
+    // 足迹模式下先藏起超充站、第三方充电站、车中泊点，避免盖住足迹
+    const FP_HIDE_LAYERS = ["sc-selected-halo", "sc-circles", "sc-hit", "nacs-circles", "nacs-hit", "camp-circles", "camp-hit"];
+    let fpHiddenLayers = null;
+    const setFootprintOverlaysHidden = (hide) => {
+      if (!map || !map.getStyle()) return;
+      if (hide) {
+        if (fpHiddenLayers) return;
+        fpHiddenLayers = {};
+        FP_HIDE_LAYERS.forEach((id) => {
+          if (!map.getLayer(id)) return;
+          fpHiddenLayers[id] = map.getLayoutProperty(id, "visibility") || "visible";
+          map.setLayoutProperty(id, "visibility", "none");
+        });
+      } else if (fpHiddenLayers) {
+        Object.entries(fpHiddenLayers).forEach(([id, vis]) => {
+          if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", vis);
+        });
+        fpHiddenLayers = null;
+      }
+    };
+
+    const setFootprintDimmed = (dim) => {
+      if (!map || !map.getLayer("fp-heat")) return;
+      map.setPaintProperty("fp-heat", "heatmap-opacity", dim ? 0.3 : 0.8);
+      map.setPaintProperty("fp-trails-line", "line-opacity", dim ? 0.3 : 0.88);
+    };
+
     const redrawFootprint = () => {
       if (!ensureFootprintLayers()) return;
       const empty = { type: "FeatureCollection", features: [] };
@@ -2988,15 +3044,18 @@
         map.getSource("fp-trails").setData(empty);
         return;
       }
+      // 换主题会重建地图图层，充电站又会显示出来，这里再藏一次
+      if (fpHiddenLayers) FP_HIDE_LAYERS.forEach((id) => { if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", "none"); });
+      setFootprintDimmed(fpLoading);
       const isLight = document.body.classList.contains("theme-light");
       map.setPaintProperty("fp-fog-fill", "fill-color", isLight ? "#0f172a" : "#05070e");
-      map.setPaintProperty("fp-fog-fill", "fill-opacity", isLight ? 0.3 : 0.44);
+      map.setPaintProperty("fp-fog-fill", "fill-opacity", isLight ? 0.42 : 0.6);
+      const [dlon, dlat] = footprintData.cell_size || [0.02, 0.018];
       map.getSource("fp-fog").setData(
         footprintFog
-          ? { type: "FeatureCollection", features: [{ type: "Feature", properties: {}, geometry: { type: "Polygon", coordinates: [WORLD_RING] } }] }
+          ? { type: "FeatureCollection", features: [{ type: "Feature", properties: {}, geometry: buildFogGeometry(footprintData.cells || [], dlon, dlat) }] }
           : empty
       );
-      const [dlon, dlat] = footprintData.cell_size || [0.02, 0.018];
       const cellFeats = (footprintData.cells || []).map(([gx, gy, visits]) => ({
         type: "Feature",
         properties: { visits: visits || 1 },
@@ -3020,6 +3079,7 @@
       return m ? `${m[1]}年${Number(m[2])}月` : p;
     };
 
+    // 时间筛选分两层：第一行「全部 / 各年份」，选了某一年后第二行才出现这一年的月份
     const renderPeriodBars = () => {
       const years = availablePeriods.years || [];
       const months = availablePeriods.months || [];
@@ -3030,24 +3090,25 @@
       }
       const btn = (val, text) =>
         `<button class="period-pill${currentPeriod === val ? " active" : ""}" type="button" data-period="${esc(val)}" role="tab" aria-selected="${currentPeriod === val}">${esc(text)}</button>`;
-      const parts = [btn("all", "全部")];
+      const selYear = currentPeriod === "all" ? null : currentPeriod.slice(0, 4);
+      let html;
       if (years.length) {
-        parts.push(`<span class="period-sep" aria-hidden="true"></span>`);
-        years.forEach((y) => parts.push(btn(y, `${y}年`)));
+        const row1 = [btn("all", "全部"), ...years.map((y) => btn(y, `${y}年`))];
+        html = `<div class="period-row">${row1.join("")}</div>`;
+        const ms = selYear ? months.filter((ym) => ym.startsWith(`${selYear}-`)) : [];
+        if (ms.length) {
+          const row2 = [btn(selYear, "全年"), ...ms.map((ym) => btn(ym, `${Number(ym.split("-")[1])}月`))];
+          html += `<div class="period-row sub">${row2.join("")}</div>`;
+        }
+      } else {
+        const row = [btn("all", "全部"), ...months.map((ym) => btn(ym, periodLabel(ym)))];
+        html = `<div class="period-row">${row.join("")}</div>`;
       }
-      if (months.length) {
-        parts.push(`<span class="period-sep" aria-hidden="true"></span>`);
-        months.forEach((ym) => {
-          const [y, mo] = ym.split("-");
-          const shortLbl = years.length <= 1 ? `${Number(mo)}月` : `${y.slice(2)}年${Number(mo)}月`;
-          parts.push(btn(ym, shortLbl));
-        });
-      }
-      const html = parts.join("");
-      tripsPeriodBarEl.innerHTML = html;
-      tripsPeriodBarEl.classList.remove("hidden");
-      fpPeriodBarEl.innerHTML = html;
-      fpPeriodBarEl.classList.remove("hidden");
+      [tripsPeriodBarEl, fpPeriodBarEl].forEach((el) => {
+        el.innerHTML = html;
+        el.classList.remove("hidden");
+        el.querySelector(".period-row.sub .active")?.scrollIntoView({ block: "nearest", inline: "center" });
+      });
     };
 
     const fitTrip = (t) => {
@@ -3196,55 +3257,81 @@
       }
     };
 
+    const fpCache = new Map(); // 看过的时间段记在内存里，再点直接显示
+    const FP_CACHE_MS = 5 * 60 * 1000;
+    let fpLoadSeq = 0;
+    let fpLoading = false;
+    let fpPlacesOpen = false;
+
     const renderFootprintBar = () => {
       renderPeriodBars();
       fpFogBtn.setAttribute("aria-pressed", String(footprintFog));
-      if (!footprintData) {
+      footprintBar.classList.toggle("loading", fpLoading);
+      const d = footprintData;
+      if (fpLoading || !d) {
         fpTitleEl.textContent = `我的足迹 · ${periodLabel(currentPeriod)}`;
-        fpMetaEl.textContent = "正在从 NAS 计算已解锁区域…";
+        fpMetaEl.innerHTML = `<span class="fp-spin" aria-hidden="true"></span>正在加载这段时间的足迹…`;
         fpPlacesEl.classList.add("hidden");
         return;
       }
-      const d = footprintData;
-      fpTitleEl.textContent = `我的足迹 · 已探索约 ${fmtNum(d.area_km2)} km²`;
-      const parts = [
-        periodLabel(currentPeriod),
-        `${fmtNum(d.drive_count)} 段行程`,
-        `共 ${fmtNum(d.total_distance_km)} km`,
-      ];
-      fpMetaEl.textContent = parts.join(" · ");
+      fpTitleEl.textContent = `${periodLabel(currentPeriod)} · 已探索约 ${fmtNum(d.area_km2)} km²`;
       const tags = [];
       (d.prefectures || []).forEach((p) => tags.push(p));
       (d.cities || []).forEach((c) => { if (!tags.includes(c)) tags.push(c); });
-      if (tags.length) {
-        fpPlacesEl.innerHTML = tags.slice(0, 20).map((t) => `<span class="fp-place-tag">${esc(t)}</span>`).join("");
+      const parts = [`${fmtNum(d.drive_count)} 段行程`, `${fmtNum(d.total_distance_km)} km`];
+      if ((d.prefectures || []).length) parts.push(`${d.prefectures.length} 个都道府县`);
+      fpMetaEl.innerHTML = esc(parts.join(" · ")) + (tags.length ? ` <span class="fp-more">${fpPlacesOpen ? "收起地名 ▴" : "看地名 ▾"}</span>` : "");
+      if (tags.length && fpPlacesOpen) {
+        fpPlacesEl.innerHTML = tags.slice(0, 40).map((t) => `<span class="fp-place-tag">${esc(t)}</span>`).join("");
         fpPlacesEl.classList.remove("hidden");
       } else {
         fpPlacesEl.classList.add("hidden");
       }
     };
 
+    const showFootprint = (d, fit) => {
+      footprintData = d;
+      if (d.periods) availablePeriods = d.periods;
+      fpLoading = false;
+      setFootprintDimmed(false);
+      renderFootprintBar();
+      redrawFootprint();
+      if (fit && map && Array.isArray(d.bounds) && d.bounds.length === 4) {
+        const mobile = window.innerWidth <= 760;
+        const barH = footprintBar.offsetHeight || 140;
+        map.fitBounds([[d.bounds[0], d.bounds[1]], [d.bounds[2], d.bounds[3]]], {
+          padding: mobile ? { top: 110, bottom: barH + 30, left: 28, right: 28 } : { top: 96, bottom: barH + 40, left: 80, right: 80 },
+          maxZoom: 12.5,
+          duration: 850,
+        });
+      }
+    };
+
     const loadFootprint = async ({ fit = true } = {}) => {
-      footprintData = null;
+      const period = currentPeriod;
+      const seq = ++fpLoadSeq;
+      const hit = fpCache.get(period);
+      if (hit && Date.now() - hit.at < FP_CACHE_MS) {
+        showFootprint(hit.data, fit);
+        return;
+      }
+      // 加载时旧足迹先变淡，避免以为已经切换好了
+      fpLoading = true;
+      setFootprintDimmed(true);
       renderFootprintBar();
       try {
-        const d = await nasFetch(`/footprint?period=${encodeURIComponent(currentPeriod)}`);
-        footprintData = d;
-        if (d.periods) availablePeriods = d.periods;
-        renderFootprintBar();
-        redrawFootprint();
-        if (fit && map && Array.isArray(d.bounds) && d.bounds.length === 4) {
-          const mobile = window.innerWidth <= 760;
-          map.fitBounds([[d.bounds[0], d.bounds[1]], [d.bounds[2], d.bounds[3]]], {
-            padding: mobile ? { top: 96, bottom: 200, left: 28, right: 28 } : { top: 96, bottom: 180, left: 80, right: 80 },
-            maxZoom: 12.5,
-            duration: 850,
-          });
-        }
+        const d = await nasFetch(`/footprint?period=${encodeURIComponent(period)}`);
+        fpCache.set(period, { at: Date.now(), data: d });
+        if (seq !== fpLoadSeq || !footprintActive) return;
+        showFootprint(d, fit);
       } catch (err) {
+        if (seq !== fpLoadSeq) return;
+        fpLoading = false;
+        setFootprintDimmed(false);
         const msg = String(err.message || "").includes("404")
           ? "NAS 上的 bridge.py 还是旧版，请更新后再看足迹"
           : `读取足迹失败：${err.message}`;
+        footprintBar.classList.remove("loading");
         fpMetaEl.textContent = msg;
         showToast(msg, 4000);
       }
@@ -3266,6 +3353,8 @@
       drawerEl.classList.add("collapsed");
       document.getElementById("btn-toggle-drawer").setAttribute("aria-expanded", "false");
       if (map.getLayer("reach-overlay-layer")) map.setLayoutProperty("reach-overlay-layer", "visibility", "none");
+      setFootprintOverlaysHidden(true);
+      fpPlacesOpen = false;
       footprintBar.classList.remove("hidden");
       loadFootprint({ fit: true });
     };
@@ -3273,8 +3362,11 @@
     const closeFootprint = () => {
       footprintActive = false;
       footprintData = null;
+      fpLoadSeq++;
+      fpLoading = false;
       footprintBar.classList.add("hidden");
       redrawFootprint();
+      setFootprintOverlaysHidden(false);
       updateReachability();
       if (cardMinimized) document.getElementById("car-pill-bar")?.classList.remove("hidden");
       else document.getElementById("status-card").classList.remove("hidden");
@@ -3303,8 +3395,11 @@
       if (footprintActive) {
         footprintActive = false;
         footprintData = null;
+        fpLoadSeq++;
+        fpLoading = false;
         footprintBar.classList.add("hidden");
         redrawFootprint();
+        setFootprintOverlaysHidden(false);
       }
       selectedTripId = id;
       tripsModal.classList.add("hidden");
@@ -3377,6 +3472,13 @@
       if (btn) selectPeriod(btn.dataset.period);
     });
     document.getElementById("btn-open-footprint").addEventListener("click", openFootprint);
+    document.getElementById("btn-car-footprint")?.addEventListener("click", openFootprint);
+    document.getElementById("btn-car-pill-footprint")?.addEventListener("click", openFootprint);
+    document.querySelector("#footprint-bar .fp-main").addEventListener("click", () => {
+      if (!footprintData || fpLoading) return;
+      fpPlacesOpen = !fpPlacesOpen;
+      renderFootprintBar();
+    });
     fpFogBtn.addEventListener("click", () => {
       footprintFog = !footprintFog;
       fpFogBtn.setAttribute("aria-pressed", String(footprintFog));
