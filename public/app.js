@@ -2919,36 +2919,60 @@
       if (!map.getSource("fp-cells")) {
         map.addSource("fp-cells", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
         map.addLayer({
-          id: "fp-cells-fill",
-          type: "fill",
+          id: "fp-heat",
+          type: "heatmap",
           source: "fp-cells",
           paint: {
-            "fill-color": ["interpolate", ["linear"], ["get", "visits"], 1, "#38bdf8", 4, "#818cf8", 10, "#c084fc"],
-            "fill-opacity": ["interpolate", ["linear"], ["get", "visits"], 1, 0.24, 5, 0.36, 12, 0.48],
-          },
-        });
-        map.addLayer({
-          id: "fp-cells-line",
-          type: "line",
-          source: "fp-cells",
-          paint: {
-            "line-color": "#38bdf8",
-            "line-width": ["interpolate", ["linear"], ["zoom"], 5, 0.4, 11, 1.2],
-            "line-opacity": 0.55,
+            "heatmap-weight": ["interpolate", ["linear"], ["get", "visits"], 1, 0.35, 5, 0.7, 15, 1.0],
+            "heatmap-intensity": ["interpolate", ["linear"], ["zoom"], 5, 0.7, 10, 0.95, 14, 1.15],
+            "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 5, 14, 9, 32, 12, 56, 15, 86],
+            "heatmap-opacity": 0.78,
+            "heatmap-color": [
+              "interpolate", ["linear"], ["heatmap-density"],
+              0, "rgba(56, 189, 248, 0)",
+              0.2, "rgba(56, 189, 248, 0.2)",
+              0.5, "rgba(99, 102, 241, 0.38)",
+              0.8, "rgba(168, 85, 247, 0.52)",
+              1, "rgba(232, 121, 249, 0.65)",
+            ],
           },
         });
       }
       if (!map.getSource("fp-trails")) {
         map.addSource("fp-trails", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
         map.addLayer({
+          id: "fp-trails-aura",
+          type: "line",
+          source: "fp-trails",
+          layout: { "line-cap": "round", "line-join": "round" },
+          paint: {
+            "line-color": "#38bdf8",
+            "line-width": ["interpolate", ["linear"], ["zoom"], 6, 14, 10, 34, 13, 62],
+            "line-blur": ["interpolate", ["linear"], ["zoom"], 6, 10, 10, 24, 13, 42],
+            "line-opacity": 0.28,
+          },
+        });
+        map.addLayer({
+          id: "fp-trails-mid",
+          type: "line",
+          source: "fp-trails",
+          layout: { "line-cap": "round", "line-join": "round" },
+          paint: {
+            "line-color": "#a855f7",
+            "line-width": ["interpolate", ["linear"], ["zoom"], 6, 5, 10, 12, 13, 20],
+            "line-blur": ["interpolate", ["linear"], ["zoom"], 6, 4, 10, 8, 13, 14],
+            "line-opacity": 0.36,
+          },
+        });
+        map.addLayer({
           id: "fp-trails-line",
           type: "line",
           source: "fp-trails",
           layout: { "line-cap": "round", "line-join": "round" },
           paint: {
-            "line-color": "#e879f9",
-            "line-width": ["interpolate", ["linear"], ["zoom"], 5, 1.5, 11, 3.2],
-            "line-opacity": 0.85,
+            "line-color": "#f0abfc",
+            "line-width": ["interpolate", ["linear"], ["zoom"], 6, 1.2, 10, 2.2, 13, 3.2],
+            "line-opacity": 0.88,
           },
         });
       }
@@ -2966,21 +2990,18 @@
       }
       const isLight = document.body.classList.contains("theme-light");
       map.setPaintProperty("fp-fog-fill", "fill-color", isLight ? "#0f172a" : "#05070e");
-      map.setPaintProperty("fp-fog-fill", "fill-opacity", isLight ? 0.34 : 0.46);
+      map.setPaintProperty("fp-fog-fill", "fill-opacity", isLight ? 0.3 : 0.44);
       map.getSource("fp-fog").setData(
         footprintFog
           ? { type: "FeatureCollection", features: [{ type: "Feature", properties: {}, geometry: { type: "Polygon", coordinates: [WORLD_RING] } }] }
           : empty
       );
       const [dlon, dlat] = footprintData.cell_size || [0.02, 0.018];
-      const cellFeats = (footprintData.cells || []).map(([gx, gy, visits]) => {
-        const x0 = gx * dlon, y0 = gy * dlat, x1 = (gx + 1) * dlon, y1 = (gy + 1) * dlat;
-        return {
-          type: "Feature",
-          properties: { visits: visits || 1 },
-          geometry: { type: "Polygon", coordinates: [[[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]] },
-        };
-      });
+      const cellFeats = (footprintData.cells || []).map(([gx, gy, visits]) => ({
+        type: "Feature",
+        properties: { visits: visits || 1 },
+        geometry: { type: "Point", coordinates: [(gx + 0.5) * dlon, (gy + 0.5) * dlat] },
+      }));
       map.getSource("fp-cells").setData({ type: "FeatureCollection", features: cellFeats });
       const trailFeats = (footprintData.trails || []).map((coords) => ({
         type: "Feature",
@@ -3185,11 +3206,11 @@
         return;
       }
       const d = footprintData;
-      fpTitleEl.textContent = `我的足迹 · 已解锁约 ${fmtNum(d.area_km2)} km²`;
+      fpTitleEl.textContent = `我的足迹 · 已探索约 ${fmtNum(d.area_km2)} km²`;
       const parts = [
         periodLabel(currentPeriod),
-        `${fmtNum(d.cell_count)} 个区域格`,
-        `${fmtNum(d.drive_count)} 段行程 · ${fmtNum(d.total_distance_km)} km`,
+        `${fmtNum(d.drive_count)} 段行程`,
+        `共 ${fmtNum(d.total_distance_km)} km`,
       ];
       fpMetaEl.textContent = parts.join(" · ");
       const tags = [];
