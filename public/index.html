@@ -11,7 +11,7 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23e31937'/><path d='M17.5 5l-8 12h5.5l-1.5 10 9-13h-5.5z' fill='%23fff'/></svg>" />
   <link rel="preconnect" href="https://tiles.openfreemap.org" crossorigin />
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
-  <link rel="stylesheet" href="style.css?v=20261127fp1" />
+  <link rel="stylesheet" href="style.css?v=20261128acct3" />
 </head>
 <body>
   <div id="map"></div>
@@ -428,13 +428,39 @@
   <div id="nas-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="nas-modal-title">
     <div class="modal-card glass">
       <div class="modal-header">
-        <h2 id="nas-modal-title">🚗 同步我的车（NAS TeslaMate）</h2>
+        <h2 id="nas-modal-title">🚗 我的车</h2>
         <button id="btn-close-nas" class="icon-btn sm" type="button" aria-label="关闭">
           <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
         </button>
       </div>
       <div class="modal-body">
-        <p>连接你 NAS 上的 TeslaMate 只读接口后，将自动同步车辆实时位置与电量，并在地图上以<strong style="color:#c084fc">紫色辐射范围</strong>标出「你现在剩下的电量能去哪里」。配置仅保存在你的浏览器本地。</p>
+        <p>登录后自动同步车辆的实时位置和电量，并在地图上用<strong style="color:#c084fc">紫色范围</strong>标出「现在剩下的电量能去哪里」。</p>
+        <div class="acct-box">
+          <div id="acct-logged-out">
+            <div class="acct-title">账号密码登录</div>
+            <div class="nas-form">
+              <label class="nas-field">
+                <span>邮箱</span>
+                <input id="acct-email" type="email" autocomplete="username" placeholder="登录邮箱" />
+              </label>
+              <label class="nas-field">
+                <span>密码</span>
+                <input id="acct-password" type="password" autocomplete="current-password" placeholder="密码" />
+              </label>
+              <button id="btn-acct-login" class="pill-btn" type="button">登录</button>
+            </div>
+          </div>
+          <div id="acct-logged-in" class="hidden">
+            <div class="acct-row">
+              <span>已登录：<strong id="acct-email-label"></strong></span>
+              <button id="btn-acct-logout" class="text-btn" type="button">退出</button>
+            </div>
+            <div id="acct-hint" class="acct-hint"></div>
+          </div>
+          <div id="acct-msg" class="nas-status-msg hidden"></div>
+        </div>
+        <details id="nas-settings" class="nas-settings hidden">
+        <summary id="nas-settings-summary">绑定我的特斯拉</summary>
         <div class="nas-form">
           <label class="nas-field">
             <span>NAS 接口地址（/status）</span>
@@ -446,11 +472,12 @@
           </label>
           <div id="nas-status-msg" class="nas-status-msg hidden"></div>
           <div class="nas-actions">
-            <button id="btn-nas-sync" class="pill-btn" type="button">从 NAS 同步并显示紫色辐射</button>
+            <button id="btn-nas-sync" class="pill-btn" type="button">绑定并同步</button>
             <button id="btn-car-gps-test" class="pill-btn ghost" type="button">用当前定位 + 面板电量预览紫色辐射</button>
           </div>
           <button id="btn-car-clear" class="text-btn" type="button" style="margin-top:8px">清除我的车辆紫色辐射</button>
         </div>
+        </details>
       </div>
     </div>
   </div>
@@ -534,6 +561,7 @@
   </div>
 
   <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
-  <script src="app.js?v=20261127fp2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.js"></script>
+  <script src="app.js?v=20261128acct3"></script>
 </body>
 </html>

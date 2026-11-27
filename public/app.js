@@ -3417,6 +3417,122 @@
       }
     });
 
+    // 账号登录（小家控的 Supabase 账号）：登录后自动取回 / 保存 NAS 接口设置
+    (() => {
+      const SB_URL = "https://xwzovuseugyneqsmlnry.supabase.co";
+      const SB_KEY = "sb_publishable_WbDctE2IA8QZXq5av9-VQg_ZfuVM4bM"; // 公开钥匙，数据靠表的行级权限保护
+      const TABLE = "dokomademap_nas_bindings";
+      const outEl = document.getElementById("acct-logged-out");
+      const inEl = document.getElementById("acct-logged-in");
+      const msgEl = document.getElementById("acct-msg");
+      const emailEl = document.getElementById("acct-email");
+      const pwEl = document.getElementById("acct-password");
+      const showMsg = (t) => { msgEl.textContent = t; msgEl.classList.toggle("hidden", !t); };
+      if (!window.supabase || !window.supabase.createClient) {
+        showMsg("登录功能暂时加载不了，可以先手动填写下面的 NAS 设置。");
+        return;
+      }
+      const sb = window.supabase.createClient(SB_URL, SB_KEY, {
+        auth: { storageKey: "dokomademap_sb_auth", persistSession: true, autoRefreshToken: true },
+      });
+      let user = null;
+
+      const settingsEl = document.getElementById("nas-settings");
+      const render = () => {
+        outEl.classList.toggle("hidden", !!user);
+        inEl.classList.toggle("hidden", !user);
+        // 没登录只显示登录框；登录后才显示 NAS 设置（已绑定时默认收起）
+        settingsEl.classList.toggle("hidden", !user);
+        if (user) {
+          const bound = !!nasUrlEl.value.trim();
+          settingsEl.open = !bound;
+          document.getElementById("nas-settings-summary").textContent = bound ? "已绑定特斯拉 · 修改" : "绑定我的特斯拉";
+          document.getElementById("acct-hint").textContent = bound
+            ? "✓ 已绑定特斯拉，以后在任何设备登录都会自动同步"
+            : "还没绑定特斯拉，在下面填一次 NAS 地址和密钥就好";
+        }
+        if (user) document.getElementById("acct-email-label").textContent = user.email || "";
+      };
+
+      // 从账号取回 NAS 设置（自己或同一个家里的成员存的，取最新那条）；
+      // 本机还没有或和账号不一样时，顺便同步一次车辆
+      const pullBinding = async ({ autoSync = true } = {}) => {
+        const { data: rows, error } = await sb.from(TABLE).select("nas_url, nas_token")
+          .neq("nas_url", "").order("updated_at", { ascending: false }).limit(1);
+        if (error) throw error;
+        const data = rows && rows[0];
+        if (!data || !data.nas_url) return false;
+        const prev = (() => { try { return JSON.parse(localStorage.getItem("dokomademap_nas_v1") || "{}"); } catch (_) { return {}; } })();
+        const changed = prev.url !== data.nas_url || prev.token !== data.nas_token;
+        nasUrlEl.value = data.nas_url;
+        nasTokEl.value = data.nas_token;
+        saveNasCache(data.nas_url, data.nas_token);
+        render();
+        if (autoSync && changed) {
+          syncFromNas(data.nas_url, data.nas_token, { silent: true, pan: true }).catch(() => {});
+        }
+        return true;
+      };
+
+      const pushBinding = async (url, token) => {
+        if (!user || !url) return false;
+        const { error } = await sb.from(TABLE).upsert({
+          user_id: user.id, nas_url: url, nas_token: token || "", updated_at: new Date().toISOString(),
+        });
+        if (error) { showMsg(`没能保存绑定：${error.message}`); return false; }
+        return true;
+      };
+
+      document.getElementById("btn-acct-login").addEventListener("click", async () => {
+        const email = emailEl.value.trim();
+        const password = pwEl.value;
+        if (!email || !password) { showMsg("请填写邮箱和密码。"); return; }
+        showMsg("正在登录…");
+        const { data, error } = await sb.auth.signInWithPassword({ email, password });
+        if (error) { showMsg("登录失败：邮箱或密码不对。"); return; }
+        user = data.user;
+        pwEl.value = "";
+        render();
+        try {
+          const found = await pullBinding();
+          if (found) {
+            showMsg("登录成功，已自动连接特斯拉。");
+          } else if (nasUrlEl.value.trim()) {
+            await pushBinding(nasUrlEl.value.trim(), nasTokEl.value.trim());
+            showMsg("登录成功，已把本机的 NAS 设置存到账号。");
+          } else {
+            showMsg("登录成功。第一次使用，请在下面填好 NAS 设置并同步一次，以后登录就自动连接。");
+          }
+        } catch (err) {
+          showMsg(`登录成功，但读取绑定信息失败，请稍后再试（${err.message}）`);
+        }
+      });
+
+      document.getElementById("btn-acct-logout").addEventListener("click", async () => {
+        await sb.auth.signOut().catch(() => {});
+        user = null;
+        // 退出后把本机记住的 NAS 设置也清掉，别人用这台设备看不到你的车
+        nasUrlEl.value = "";
+        nasTokEl.value = "";
+        try { localStorage.removeItem("dokomademap_nas_v1"); } catch (_) {}
+        render();
+        showMsg("已退出。");
+      });
+
+      // 手动同步成功填写后，登录状态下顺便存到账号
+      document.getElementById("btn-nas-sync").addEventListener("click", () => {
+        const url = nasUrlEl.value.trim();
+        if (url) pushBinding(url, nasTokEl.value.trim()).then((ok) => { if (ok) { render(); showMsg("已绑定，以后登录就会自动同步。"); } });
+      });
+
+      // 打开网页时：已登录就自动取回 NAS 设置
+      sb.auth.getSession().then(({ data }) => {
+        user = data && data.session ? data.session.user : null;
+        render();
+        if (user) pullBinding().catch(() => {});
+      });
+    })();
+
     document.getElementById("btn-car-gps-test").addEventListener("click", () => {
       nasMsgEl.textContent = "正在获取当前定位…";
       nasMsgEl.classList.remove("hidden");

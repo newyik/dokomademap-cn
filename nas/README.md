@@ -24,7 +24,8 @@
    - 使用 **Cloudflare Tunnel** 或 **Tailscale** / NAS 反向代理（HTTPS），将 NAS 的 `8090` 端口映射出来（例如 `https://tesla.你的域名`）。
    - 打开 `https://newyik.github.io/dokomademap-cn/`，点击顶部 **`🚗 我的车`**，填入接口地址（例如 `https://tesla.你的域名/status`）和 `BRIDGE_TOKEN`，点击「同步并查看紫色辐射」即可。
 
-> 接口地址和密钥**只保存在你自己的浏览器本地存储**，不会上传到任何第三方服务器或 GitHub。
+> 不登录时，接口地址和密钥**只保存在你自己的浏览器本地存储**。
+> 在「我的车」里用小家控账号登录后，会额外存到小家控的 Supabase（表 `dokomademap_nas_bindings`，每个账号只能读写自己那一行），换设备登录就能自动取回。建表语句见 `supabase/001_nas_bindings.sql`。
 
 ## 行程、统计与足迹解锁
 
