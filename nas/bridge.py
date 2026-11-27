@@ -3,10 +3,11 @@
 TeslaMate PostgreSQL -> dokomademap-cn 网页的小接口。
 
 接口（都要带 Authorization: Bearer <BRIDGE_TOKEN>，路径前面可以多一个 /tesla）：
-  GET    /status              车辆最新电量、位置、近期电耗
-  GET    /drives?limit=20     最近的行程列表（含简化后的轨迹线）
-  GET    /drives/<id>         单段行程的完整轨迹
-  DELETE /drives/<id>         永久删除一段行程及其轨迹点（不可恢复）
+  GET    /status                    车辆最新电量、位置、近期电耗
+  GET    /stats                     自接入以来的累计总览（总里程、总充电量等）
+  GET    /drives?limit=20&offset=0  历史行程分页列表（含简化后的轨迹线）
+  GET    /drives/<id>               单段行程的完整轨迹
+  DELETE /drives/<id>               永久删除一段行程及其轨迹点（不可恢复）
 """
 
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -24,7 +25,7 @@ API_TOKEN = os.environ.get("BRIDGE_TOKEN", "")
 CAR_ID = int(os.environ.get("CAR_ID", "1"))
 LISTEN_PORT = int(os.environ.get("PORT", "8090"))
 
-LIST_PATH_POINTS = 180   # 列表里每段行程最多保留的轨迹点
+LIST_PATH_POINTS = 120   # 列表里每段行程最多保留的轨迹点（缩略图与地图总览足够清晰）
 DETAIL_PATH_POINTS = 1500  # 单段行程详情最多保留的轨迹点
 
 
@@ -176,22 +177,88 @@ def fetch_paths(cur, drive_ids, limit):
     return {k: downsample(v, limit) for k, v in paths.items()}
 
 
-def fetch_drives(limit):
-    limit = max(1, min(50, limit))
+def fetch_stats():
+    """汇总自接入 TeslaMate 以来的累计里程、行程数、时长与充电量。"""
     conn = connect()
     try:
         with conn.cursor() as cur:
             cur.execute(
+                """
+                SELECT
+                  COUNT(*),
+                  COALESCE(SUM(d.distance), 0),
+                  COALESCE(SUM(d.duration_min), 0),
+                  COALESCE(SUM(GREATEST(0, (d.start_rated_range_km - d.end_rated_range_km) * c.efficiency)), 0),
+                  MIN(d.start_date),
+                  COALESCE(MAX(d.distance), 0)
+                FROM drives d
+                JOIN cars c ON c.id = d.car_id
+                WHERE d.car_id = %s AND d.end_date IS NOT NULL
+                """,
+                (CAR_ID,),
+            )
+            drv = cur.fetchone() or (0, 0, 0, 0, None, 0)
+
+            cur.execute(
+                """
+                SELECT
+                  COUNT(*),
+                  COALESCE(SUM(charge_energy_added), 0),
+                  COALESCE(SUM(COALESCE(charge_energy_used, charge_energy_added)), 0),
+                  MIN(start_date)
+                FROM charging_processes
+                WHERE car_id = %s AND end_date IS NOT NULL
+                """,
+                (CAR_ID,),
+            )
+            chg = cur.fetchone() or (0, 0, 0, None)
+
+        dates = [dt for dt in (drv[4], chg[3]) if dt is not None]
+        since = min(dates).isoformat() if dates else None
+
+        return {
+            "since": since,
+            "drive_count": int(drv[0] or 0),
+            "total_distance_km": round(float(drv[1] or 0), 1),
+            "total_duration_min": int(drv[2] or 0),
+            "total_drive_kwh": round(float(drv[3] or 0), 1),
+            "max_drive_km": round(float(drv[5] or 0), 1),
+            "charge_count": int(chg[0] or 0),
+            "total_charge_kwh": round(float(chg[1] or 0), 1),
+            "total_charge_used_kwh": round(float(chg[2] or 0), 1),
+        }
+    finally:
+        conn.close()
+
+
+def fetch_drives(limit, offset=0):
+    limit = max(1, min(50, limit))
+    offset = max(0, offset)
+    conn = connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT COUNT(*) FROM drives WHERE car_id = %s AND end_date IS NOT NULL",
+                (CAR_ID,),
+            )
+            total = int((cur.fetchone() or (0,))[0] or 0)
+            cur.execute(
                 f"SELECT {DRIVE_COLUMNS} {DRIVE_JOINS} "
                 "WHERE d.car_id = %s AND d.end_date IS NOT NULL "
-                "ORDER BY d.start_date DESC LIMIT %s",
-                (CAR_ID, limit),
+                "ORDER BY d.start_date DESC LIMIT %s OFFSET %s",
+                (CAR_ID, limit, offset),
             )
             drives = [drive_row_to_dict(r) for r in cur.fetchall()]
             paths = fetch_paths(cur, [d["id"] for d in drives], LIST_PATH_POINTS)
         for d in drives:
             d["path"] = paths.get(d["id"], [])
-        return {"drives": drives}
+        return {
+            "drives": drives,
+            "total": total,
+            "offset": offset,
+            "limit": limit,
+            "has_more": (offset + len(drives)) < total,
+        }
     finally:
         conn.close()
 
@@ -277,12 +344,18 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if path == "/status":
                 return self._json(200, fetch_latest_status())
+            if path == "/stats":
+                return self._json(200, fetch_stats())
             if path == "/drives":
                 try:
                     limit = int(params.get("limit", "20"))
                 except ValueError:
                     limit = 20
-                return self._json(200, fetch_drives(limit))
+                try:
+                    offset = int(params.get("offset", "0"))
+                except ValueError:
+                    offset = 0
+                return self._json(200, fetch_drives(limit, offset))
             m = DRIVE_ID_RE.match(path)
             if m:
                 drive = fetch_drive(int(m.group(1)))

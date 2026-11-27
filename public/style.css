@@ -1692,8 +1692,66 @@ body.theme-light .pill-btn.ghost[aria-pressed="true"]:not(.purple-on) { color: #
 .trips-card { max-width: 480px; display: flex; flex-direction: column; overflow: hidden; padding-bottom: 12px; }
 .trips-card > .modal-header { flex-shrink: 0; }
 .trips-head-actions { display: flex; gap: 6px; }
+.trips-stats {
+  flex-shrink: 0;
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--glass-border);
+  background: var(--sub);
+}
+.trips-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.trips-stat-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.trips-stat-label { font-size: 11px; color: var(--text-3); }
+.trips-stat-val {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.trips-stat-sub { font-size: 11px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.trips-stats-since {
+  margin-top: 8px;
+  padding-top: 7px;
+  border-top: 1px solid var(--glass-border);
+  font-size: 11px;
+  color: var(--text-3);
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
 .trips-summary { flex-shrink: 0; font-size: 12.5px; color: var(--text-2); margin: -2px 0 10px; min-height: 1em; }
 .trips-summary b { color: var(--text); font-variant-numeric: tabular-nums; }
+.trips-more-wrap { flex-shrink: 0; padding: 4px 0 2px; text-align: center; }
+.trips-more-btn {
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--glass-border);
+  background: var(--sub);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.18s, border-color 0.18s;
+}
+.trips-more-btn:hover:not(:disabled) { background: var(--sub-2); border-color: rgba(168, 85, 247, 0.45); }
+.trips-more-btn:disabled { opacity: 0.6; cursor: default; }
+.trips-end-note { padding: 8px 0 2px; text-align: center; font-size: 11.5px; color: var(--text-3); }
 .trips-list {
   flex: 1 1 auto;
   min-height: 0;

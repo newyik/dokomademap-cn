@@ -2733,12 +2733,19 @@
       });
     }
 
-    // ================= 最近行程 =================
+    // ================= 最近行程与累计统计 =================
     const tripsModal = document.getElementById("trips-modal");
     const tripsListEl = document.getElementById("trips-list");
+    const tripsStatsEl = document.getElementById("trips-stats");
     const tripsSummaryEl = document.getElementById("trips-summary");
     const tripBar = document.getElementById("trip-bar");
+    const TRIPS_PAGE_SIZE = 20;
     let trips = [];
+    let tripsTotal = null;
+    let tripsHasMore = false;
+    let tripsLoadingMore = false;
+    let tripsStats = null;
+    let tripsStatsLegacy = false;
     let selectedTripId = null;
 
     const getNas = () => {
@@ -2767,8 +2774,15 @@
       const hm = d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
       if (d.toDateString() === today.toDateString()) return `今天 ${hm}`;
       if (d.toDateString() === y.toDateString()) return `昨天 ${hm}`;
-      return `${d.getMonth() + 1}月${d.getDate()}日 ${hm}`;
+      const yr = d.getFullYear() !== today.getFullYear() ? `${d.getFullYear()}年` : "";
+      return `${yr}${d.getMonth() + 1}月${d.getDate()}日 ${hm}`;
     };
+    const fmtDateOnly = (iso) => {
+      if (!iso) return "";
+      const d = new Date(iso);
+      return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
+    };
+    const fmtNum = (n) => Math.round(n || 0).toLocaleString("zh-CN");
     const fmtDur = (m) => (m == null ? "—" : m >= 60 ? `${Math.floor(m / 60)} 小时 ${m % 60} 分` : `${m} 分钟`);
     const esc = (t) => String(t ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
     const tripTitle = (t) => `${t.from || "未知地点"} → ${t.to || "未知地点"}`;
@@ -2887,7 +2901,43 @@
       });
     };
 
+    const renderTripsStats = () => {
+      if (!tripsStats) {
+        tripsStatsEl.classList.add("hidden");
+        tripsStatsEl.innerHTML = "";
+        return;
+      }
+      const s = tripsStats;
+      const hours = Math.round((s.total_duration_min || 0) / 60);
+      const sinceText = s.since ? `自 ${fmtDateOnly(s.since)} 接入以来` : "自接入以来累计";
+      const maxText = s.max_drive_km > 0 ? `最长单次 ${s.max_drive_km} km` : "";
+      tripsStatsEl.innerHTML = `
+        <div class="trips-stats-grid">
+          <div class="trips-stat-cell">
+            <span class="trips-stat-label">累计行驶</span>
+            <span class="trips-stat-val">${fmtNum(s.total_distance_km)} km</span>
+            <span class="trips-stat-sub">共 ${fmtNum(s.drive_count)} 段</span>
+          </div>
+          <div class="trips-stat-cell">
+            <span class="trips-stat-label">累计充电</span>
+            <span class="trips-stat-val">${fmtNum(s.total_charge_kwh)} kWh</span>
+            <span class="trips-stat-sub">共 ${fmtNum(s.charge_count)} 次</span>
+          </div>
+          <div class="trips-stat-cell">
+            <span class="trips-stat-label">累计驾驶</span>
+            <span class="trips-stat-val">${fmtNum(hours)} 小时</span>
+            <span class="trips-stat-sub">${maxText || `约 ${fmtNum(s.total_drive_kwh)} kWh`}</span>
+          </div>
+        </div>
+        <div class="trips-stats-since">
+          <span>${esc(sinceText)}</span>
+          ${s.total_drive_kwh > 0 ? `<span>行驶约耗 ${fmtNum(s.total_drive_kwh)} kWh</span>` : ""}
+        </div>`;
+      tripsStatsEl.classList.remove("hidden");
+    };
+
     const renderTripsList = () => {
+      renderTripsStats();
       if (!trips.length) {
         tripsSummaryEl.textContent = "";
         tripsListEl.innerHTML = `<div class="trips-empty">还没有行程记录</div>`;
@@ -2895,8 +2945,12 @@
       }
       const km = trips.reduce((a, t) => a + (t.distance_km || 0), 0);
       const kwh = trips.reduce((a, t) => a + (t.kwh > 0 ? t.kwh : 0), 0);
-      tripsSummaryEl.innerHTML = `最近 <b>${trips.length}</b> 段 · 共 <b>${Math.round(km)}</b> km${kwh > 0 ? ` · 约 <b>${Math.round(kwh)}</b> kWh` : ""}`;
-      tripsListEl.innerHTML = trips.map((t) => `
+      const countText = tripsTotal != null
+        ? `已加载 <b>${trips.length}</b> / <b>${tripsTotal}</b> 段`
+        : `最近 <b>${trips.length}</b> 段`;
+      const legacyHint = tripsStatsLegacy ? ` · 升级 NAS 的 bridge.py 可看全部历史与总充电量` : "";
+      tripsSummaryEl.innerHTML = `${countText} · 共 <b>${fmtNum(km)}</b> km${kwh > 0 ? ` · 约 <b>${fmtNum(kwh)}</b> kWh` : ""}${legacyHint}`;
+      const rowsHtml = trips.map((t) => `
         <div class="trip-item${t.id === selectedTripId ? " active" : ""}" data-id="${t.id}">
           <button class="trip-open" type="button" data-id="${t.id}">
             ${sparkPath(t.path)}
@@ -2909,18 +2963,70 @@
             <svg viewBox="0 0 24 24"><path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </button>
         </div>`).join("");
+      let footHtml = "";
+      if (tripsHasMore) {
+        const label = tripsLoadingMore
+          ? "正在加载更多行程…"
+          : `加载更多（已显示 ${trips.length}${tripsTotal != null ? ` / ${tripsTotal}` : ""} 段）`;
+        footHtml = `<div class="trips-more-wrap"><button class="trips-more-btn" type="button" ${tripsLoadingMore ? "disabled" : ""}>${label}</button></div>`;
+      } else if (tripsTotal != null && tripsTotal > 0) {
+        footHtml = `<div class="trips-end-note">已显示全部 ${tripsTotal} 段行程</div>`;
+      }
+      tripsListEl.innerHTML = rowsHtml + footHtml;
+    };
+
+    const loadStats = async () => {
+      try {
+        tripsStats = await nasFetch("/stats");
+        tripsStatsLegacy = false;
+      } catch (err) {
+        tripsStats = null;
+        if (String(err.message || "").includes("404")) tripsStatsLegacy = true;
+      }
     };
 
     const loadTrips = async () => {
       tripsSummaryEl.textContent = "";
+      tripsStatsEl.classList.add("hidden");
       tripsListEl.innerHTML = `<div class="trips-empty">正在从 NAS 读取行程…</div>`;
+      tripsTotal = null;
+      tripsHasMore = false;
+      tripsLoadingMore = false;
       try {
-        const d = await nasFetch("/drives?limit=20");
+        const [d] = await Promise.all([
+          nasFetch(`/drives?limit=${TRIPS_PAGE_SIZE}&offset=0`),
+          loadStats(),
+        ]);
         trips = Array.isArray(d.drives) ? d.drives : [];
+        tripsTotal = typeof d.total === "number" ? d.total : null;
+        tripsHasMore = typeof d.has_more === "boolean" ? d.has_more : false;
         renderTripsList();
         redrawTrips();
       } catch (err) {
         tripsListEl.innerHTML = `<div class="trips-empty error">读取失败：${esc(err.message)}</div>`;
+      }
+    };
+
+    const loadMoreTrips = async () => {
+      if (tripsLoadingMore || !tripsHasMore) return;
+      tripsLoadingMore = true;
+      renderTripsList();
+      try {
+        const d = await nasFetch(`/drives?limit=${TRIPS_PAGE_SIZE}&offset=${trips.length}`);
+        const incoming = Array.isArray(d.drives) ? d.drives : [];
+        const seen = new Set(trips.map((x) => x.id));
+        for (const item of incoming) {
+          if (!seen.has(item.id)) trips.push(item);
+        }
+        if (typeof d.total === "number") tripsTotal = d.total;
+        tripsHasMore = typeof d.has_more === "boolean" ? d.has_more : false;
+        tripsLoadingMore = false;
+        renderTripsList();
+        redrawTrips();
+      } catch (err) {
+        tripsLoadingMore = false;
+        renderTripsList();
+        showToast(`加载更多失败：${err.message}`, 4000);
       }
     };
 
@@ -2980,7 +3086,9 @@
       try {
         await nasFetch(`/drives/${id}`, { method: "DELETE" });
         trips = trips.filter((x) => x.id !== id);
+        if (tripsTotal != null && tripsTotal > 0) tripsTotal -= 1;
         if (selectedTripId === id) closeTripView();
+        await loadStats();
         renderTripsList();
         redrawTrips();
         showToast("已删除这段行程");
@@ -2990,6 +3098,7 @@
     };
 
     tripsListEl.addEventListener("click", (e) => {
+      if (e.target.closest(".trips-more-btn")) { loadMoreTrips(); return; }
       const del = e.target.closest(".trip-del");
       if (del) { deleteTrip(Number(del.dataset.id)); return; }
       const open = e.target.closest(".trip-open");
