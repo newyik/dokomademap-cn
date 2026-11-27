@@ -11,7 +11,7 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23e31937'/><path d='M17.5 5l-8 12h5.5l-1.5 10 9-13h-5.5z' fill='%23fff'/></svg>" />
   <link rel="preconnect" href="https://tiles.openfreemap.org" crossorigin />
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
-  <link rel="stylesheet" href="style.css?v=20261127stats1" />
+  <link rel="stylesheet" href="style.css?v=20261127fp1" />
 </head>
 <body>
   <div id="map"></div>
@@ -461,6 +461,7 @@
       <div class="modal-header">
         <h2 id="trips-title">行程与统计</h2>
         <div class="trips-head-actions">
+          <button id="btn-open-footprint" class="pill-btn sm fp-entry-btn" type="button" title="查看已解锁足迹地图">足迹地图</button>
           <button id="btn-trips-reload" class="icon-btn sm" type="button" title="重新加载" aria-label="重新加载">
             <svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </button>
@@ -469,10 +470,30 @@
           </button>
         </div>
       </div>
+      <div id="trips-period-bar" class="period-bar hidden" role="tablist" aria-label="按时间筛选"></div>
       <div id="trips-stats" class="trips-stats hidden"></div>
       <div id="trips-summary" class="trips-summary"></div>
       <div id="trips-list" class="trips-list"></div>
     </div>
+  </div>
+
+  <!-- 足迹解锁底部信息条 -->
+  <div id="footprint-bar" class="footprint-bar glass hidden">
+    <div class="fp-top">
+      <div class="fp-main">
+        <div id="fp-title" class="fp-title">我的足迹</div>
+        <div id="fp-meta" class="fp-meta">正在计算已解锁区域…</div>
+      </div>
+      <div class="fp-actions">
+        <button id="btn-fp-fog" class="pill-btn sm ghost" type="button" aria-pressed="true" title="切换迷雾遮罩">迷雾</button>
+        <button id="btn-fp-list" class="pill-btn sm ghost" type="button">行程</button>
+        <button id="btn-fp-close" class="icon-btn sm" type="button" aria-label="关闭足迹模式">
+          <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+    </div>
+    <div id="fp-places" class="fp-places hidden"></div>
+    <div id="fp-period-bar" class="period-bar hidden" role="tablist" aria-label="按时间筛选足迹"></div>
   </div>
 
   <!-- 选中行程后的底部信息条 -->
@@ -513,6 +534,6 @@
   </div>
 
   <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
-  <script src="app.js?v=20261127stats1"></script>
+  <script src="app.js?v=20261127fp1"></script>
 </body>
 </html>

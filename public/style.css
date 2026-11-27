@@ -1691,7 +1691,54 @@ body.theme-light .pill-btn.ghost[aria-pressed="true"]:not(.purple-on) { color: #
 /* ---------- 最近行程 ---------- */
 .trips-card { max-width: 480px; display: flex; flex-direction: column; overflow: hidden; padding-bottom: 12px; }
 .trips-card > .modal-header { flex-shrink: 0; }
-.trips-head-actions { display: flex; gap: 6px; }
+.trips-head-actions { display: flex; align-items: center; gap: 6px; }
+.fp-entry-btn {
+  background: rgba(56, 189, 248, 0.16);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.42);
+  box-shadow: none;
+  padding: 5px 10px;
+  font-size: 12px;
+}
+.fp-entry-btn:hover { background: rgba(56, 189, 248, 0.25); filter: none; }
+body.theme-light .fp-entry-btn { background: rgba(2, 132, 199, 0.12); color: #0284c7; border-color: rgba(2, 132, 199, 0.35); }
+.period-bar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  padding: 2px 0 10px;
+}
+.period-bar::-webkit-scrollbar { display: none; }
+.period-pill {
+  flex-shrink: 0;
+  border: 1px solid var(--glass-border);
+  background: var(--sub);
+  color: var(--text-2);
+  border-radius: 999px;
+  padding: 5px 11px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.16s, color 0.16s, border-color 0.16s;
+}
+.period-pill:hover { background: var(--sub-2); color: var(--text); }
+.period-pill.active {
+  background: rgba(168, 85, 247, 0.2);
+  color: var(--text);
+  border-color: rgba(168, 85, 247, 0.65);
+}
+.period-sep {
+  flex-shrink: 0;
+  width: 1px;
+  height: 14px;
+  background: var(--glass-border);
+  margin: 0 2px;
+}
 .trips-stats {
   flex-shrink: 0;
   margin-bottom: 10px;
@@ -1835,17 +1882,83 @@ body.theme-light .pill-btn.ghost[aria-pressed="true"]:not(.purple-on) { color: #
 .pill-btn.danger { background: rgba(239, 68, 68, 0.14); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.4); box-shadow: none; }
 .pill-btn.danger:hover { background: rgba(239, 68, 68, 0.22); filter: none; }
 
+/* 足迹解锁底部信息条 */
+.footprint-bar {
+  position: fixed;
+  left: 50%;
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  z-index: 24;
+  width: min(560px, calc(100vw - 24px));
+  translate: -50% 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 18px;
+  animation: rise 0.3s var(--ease) both;
+}
+.fp-top { display: flex; align-items: center; gap: 10px; }
+.fp-main { flex: 1; min-width: 0; }
+.fp-title { font-weight: 700; font-size: 14px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fp-meta { margin-top: 2px; font-size: 11.5px; color: var(--text-2); line-height: 1.45; }
+.fp-actions { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+.fp-actions .pill-btn[aria-pressed="true"] {
+  background: rgba(56, 189, 248, 0.2);
+  color: #38bdf8;
+  border-color: rgba(56, 189, 248, 0.55);
+}
+body.theme-light .fp-actions .pill-btn[aria-pressed="true"] { color: #0284c7; }
+.fp-places {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.fp-places::-webkit-scrollbar { display: none; }
+.fp-place-tag {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.32);
+  border-radius: 999px;
+  padding: 2px 9px;
+  white-space: nowrap;
+}
+body.theme-light .fp-place-tag { color: #0284c7; background: rgba(2, 132, 199, 0.1); }
+.footprint-bar .period-bar { padding: 0; }
+
 @media (max-width: 760px) {
   #trips-modal { place-items: end stretch; padding: 0; }
   .trips-card {
     max-width: none;
-    max-height: 78dvh;
+    max-height: 84dvh;
     border-radius: 22px 22px 0 0;
-    padding-bottom: calc(12px + env(safe-area-inset-bottom));
+    padding: 16px 14px calc(12px + env(safe-area-inset-bottom));
   }
+  .trips-stats { padding: 9px 10px; }
+  .trips-stats-grid { gap: 6px; }
+  .trips-stat-val { font-size: 13.5px; }
+  .trips-stat-sub { font-size: 10.5px; }
+  .trip-open { gap: 9px; padding: 9px 4px 9px 8px; }
+  .trip-spark { width: 46px; height: 34px; }
+  .trip-title { font-size: 13px; }
+  .trip-meta { font-size: 11px; }
+  .trip-del { width: 40px; }
   .trip-bar { flex-wrap: wrap; bottom: calc(10px + env(safe-area-inset-bottom)); }
   .trip-bar-actions { width: 100%; }
   .trip-bar-actions .pill-btn { flex: 1; justify-content: center; }
+  .footprint-bar {
+    width: calc(100vw - 16px);
+    bottom: calc(10px + env(safe-area-inset-bottom));
+    padding: 11px 12px;
+    border-radius: 16px;
+  }
+  .fp-top { flex-wrap: wrap; gap: 8px; }
+  .fp-actions { width: 100%; }
+  .fp-actions .pill-btn { flex: 1; justify-content: center; }
 }
 
 /* ---------- 车中泊：气温自动 + 时间滚轮 ---------- */

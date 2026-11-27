@@ -2733,12 +2733,19 @@
       });
     }
 
-    // ================= 最近行程与累计统计 =================
+    // ================= 最近行程、累计统计与足迹解锁 =================
     const tripsModal = document.getElementById("trips-modal");
     const tripsListEl = document.getElementById("trips-list");
+    const tripsPeriodBarEl = document.getElementById("trips-period-bar");
     const tripsStatsEl = document.getElementById("trips-stats");
     const tripsSummaryEl = document.getElementById("trips-summary");
     const tripBar = document.getElementById("trip-bar");
+    const footprintBar = document.getElementById("footprint-bar");
+    const fpTitleEl = document.getElementById("fp-title");
+    const fpMetaEl = document.getElementById("fp-meta");
+    const fpPlacesEl = document.getElementById("fp-places");
+    const fpPeriodBarEl = document.getElementById("fp-period-bar");
+    const fpFogBtn = document.getElementById("btn-fp-fog");
     const TRIPS_PAGE_SIZE = 20;
     let trips = [];
     let tripsTotal = null;
@@ -2746,7 +2753,12 @@
     let tripsLoadingMore = false;
     let tripsStats = null;
     let tripsStatsLegacy = false;
+    let currentPeriod = "all";
+    let availablePeriods = { years: [], months: [] };
     let selectedTripId = null;
+    let footprintActive = false;
+    let footprintFog = true;
+    let footprintData = null;
 
     const getNas = () => {
       try { return JSON.parse(localStorage.getItem("dokomademap_nas_v1") || "{}"); } catch (_) { return {}; }
@@ -2887,7 +2899,135 @@
       }
       map.getSource("trip-sel").setData({ type: "FeatureCollection", features: feats });
     };
-    window.__redrawTrips = () => setTimeout(redrawTrips, 0);
+
+    const WORLD_RING = [[-180, -85], [180, -85], [180, 85], [-180, 85], [-180, -85]];
+    const ensureFootprintLayers = () => {
+      if (!map) return false;
+      if (!map.getStyle()) {
+        map.once("idle", redrawFootprint);
+        return false;
+      }
+      if (!map.getSource("fp-fog")) {
+        map.addSource("fp-fog", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+        map.addLayer({
+          id: "fp-fog-fill",
+          type: "fill",
+          source: "fp-fog",
+          paint: { "fill-color": "#05070e", "fill-opacity": 0.44 },
+        });
+      }
+      if (!map.getSource("fp-cells")) {
+        map.addSource("fp-cells", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+        map.addLayer({
+          id: "fp-cells-fill",
+          type: "fill",
+          source: "fp-cells",
+          paint: {
+            "fill-color": ["interpolate", ["linear"], ["get", "visits"], 1, "#38bdf8", 4, "#818cf8", 10, "#c084fc"],
+            "fill-opacity": ["interpolate", ["linear"], ["get", "visits"], 1, 0.24, 5, 0.36, 12, 0.48],
+          },
+        });
+        map.addLayer({
+          id: "fp-cells-line",
+          type: "line",
+          source: "fp-cells",
+          paint: {
+            "line-color": "#38bdf8",
+            "line-width": ["interpolate", ["linear"], ["zoom"], 5, 0.4, 11, 1.2],
+            "line-opacity": 0.55,
+          },
+        });
+      }
+      if (!map.getSource("fp-trails")) {
+        map.addSource("fp-trails", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+        map.addLayer({
+          id: "fp-trails-line",
+          type: "line",
+          source: "fp-trails",
+          layout: { "line-cap": "round", "line-join": "round" },
+          paint: {
+            "line-color": "#e879f9",
+            "line-width": ["interpolate", ["linear"], ["zoom"], 5, 1.5, 11, 3.2],
+            "line-opacity": 0.85,
+          },
+        });
+      }
+      return true;
+    };
+
+    const redrawFootprint = () => {
+      if (!ensureFootprintLayers()) return;
+      const empty = { type: "FeatureCollection", features: [] };
+      if (!footprintActive || !footprintData) {
+        map.getSource("fp-fog").setData(empty);
+        map.getSource("fp-cells").setData(empty);
+        map.getSource("fp-trails").setData(empty);
+        return;
+      }
+      const isLight = document.body.classList.contains("theme-light");
+      map.setPaintProperty("fp-fog-fill", "fill-color", isLight ? "#0f172a" : "#05070e");
+      map.setPaintProperty("fp-fog-fill", "fill-opacity", isLight ? 0.34 : 0.46);
+      map.getSource("fp-fog").setData(
+        footprintFog
+          ? { type: "FeatureCollection", features: [{ type: "Feature", properties: {}, geometry: { type: "Polygon", coordinates: [WORLD_RING] } }] }
+          : empty
+      );
+      const [dlon, dlat] = footprintData.cell_size || [0.02, 0.018];
+      const cellFeats = (footprintData.cells || []).map(([gx, gy, visits]) => {
+        const x0 = gx * dlon, y0 = gy * dlat, x1 = (gx + 1) * dlon, y1 = (gy + 1) * dlat;
+        return {
+          type: "Feature",
+          properties: { visits: visits || 1 },
+          geometry: { type: "Polygon", coordinates: [[[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]] },
+        };
+      });
+      map.getSource("fp-cells").setData({ type: "FeatureCollection", features: cellFeats });
+      const trailFeats = (footprintData.trails || []).map((coords) => ({
+        type: "Feature",
+        properties: {},
+        geometry: { type: "LineString", coordinates: coords },
+      }));
+      map.getSource("fp-trails").setData({ type: "FeatureCollection", features: trailFeats });
+    };
+
+    window.__redrawTrips = () => setTimeout(() => { redrawTrips(); redrawFootprint(); }, 0);
+
+    const periodLabel = (p) => {
+      if (!p || p === "all") return "全部时间";
+      if (/^\d{4}$/.test(p)) return `${p}年`;
+      const m = p.match(/^(\d{4})-(\d{2})$/);
+      return m ? `${m[1]}年${Number(m[2])}月` : p;
+    };
+
+    const renderPeriodBars = () => {
+      const years = availablePeriods.years || [];
+      const months = availablePeriods.months || [];
+      if (!years.length && !months.length) {
+        tripsPeriodBarEl.classList.add("hidden");
+        fpPeriodBarEl.classList.add("hidden");
+        return;
+      }
+      const btn = (val, text) =>
+        `<button class="period-pill${currentPeriod === val ? " active" : ""}" type="button" data-period="${esc(val)}" role="tab" aria-selected="${currentPeriod === val}">${esc(text)}</button>`;
+      const parts = [btn("all", "全部")];
+      if (years.length) {
+        parts.push(`<span class="period-sep" aria-hidden="true"></span>`);
+        years.forEach((y) => parts.push(btn(y, `${y}年`)));
+      }
+      if (months.length) {
+        parts.push(`<span class="period-sep" aria-hidden="true"></span>`);
+        months.forEach((ym) => {
+          const [y, mo] = ym.split("-");
+          const shortLbl = years.length <= 1 ? `${Number(mo)}月` : `${y.slice(2)}年${Number(mo)}月`;
+          parts.push(btn(ym, shortLbl));
+        });
+      }
+      const html = parts.join("");
+      tripsPeriodBarEl.innerHTML = html;
+      tripsPeriodBarEl.classList.remove("hidden");
+      fpPeriodBarEl.innerHTML = html;
+      fpPeriodBarEl.classList.remove("hidden");
+    };
 
     const fitTrip = (t) => {
       if (!map || !t.path || t.path.length < 2) return;
@@ -2909,22 +3049,24 @@
       }
       const s = tripsStats;
       const hours = Math.round((s.total_duration_min || 0) / 60);
-      const sinceText = s.since ? `自 ${fmtDateOnly(s.since)} 接入以来` : "自接入以来累计";
+      const sinceText = currentPeriod === "all"
+        ? (s.since ? `自 ${fmtDateOnly(s.since)} 接入以来` : "自接入以来累计")
+        : `${periodLabel(currentPeriod)} 统计`;
       const maxText = s.max_drive_km > 0 ? `最长单次 ${s.max_drive_km} km` : "";
       tripsStatsEl.innerHTML = `
         <div class="trips-stats-grid">
           <div class="trips-stat-cell">
-            <span class="trips-stat-label">累计行驶</span>
+            <span class="trips-stat-label">${currentPeriod === "all" ? "累计行驶" : "期间行驶"}</span>
             <span class="trips-stat-val">${fmtNum(s.total_distance_km)} km</span>
             <span class="trips-stat-sub">共 ${fmtNum(s.drive_count)} 段</span>
           </div>
           <div class="trips-stat-cell">
-            <span class="trips-stat-label">累计充电</span>
+            <span class="trips-stat-label">${currentPeriod === "all" ? "累计充电" : "期间充电"}</span>
             <span class="trips-stat-val">${fmtNum(s.total_charge_kwh)} kWh</span>
             <span class="trips-stat-sub">共 ${fmtNum(s.charge_count)} 次</span>
           </div>
           <div class="trips-stat-cell">
-            <span class="trips-stat-label">累计驾驶</span>
+            <span class="trips-stat-label">${currentPeriod === "all" ? "累计驾驶" : "期间驾驶"}</span>
             <span class="trips-stat-val">${fmtNum(hours)} 小时</span>
             <span class="trips-stat-sub">${maxText || `约 ${fmtNum(s.total_drive_kwh)} kWh`}</span>
           </div>
@@ -2937,10 +3079,12 @@
     };
 
     const renderTripsList = () => {
+      renderPeriodBars();
       renderTripsStats();
       if (!trips.length) {
         tripsSummaryEl.textContent = "";
-        tripsListEl.innerHTML = `<div class="trips-empty">还没有行程记录</div>`;
+        const emptyMsg = currentPeriod === "all" ? "还没有行程记录" : `${periodLabel(currentPeriod)} 还没有行程记录`;
+        tripsListEl.innerHTML = `<div class="trips-empty">${esc(emptyMsg)}</div>`;
         return;
       }
       const km = trips.reduce((a, t) => a + (t.distance_km || 0), 0);
@@ -2970,14 +3114,15 @@
           : `加载更多（已显示 ${trips.length}${tripsTotal != null ? ` / ${tripsTotal}` : ""} 段）`;
         footHtml = `<div class="trips-more-wrap"><button class="trips-more-btn" type="button" ${tripsLoadingMore ? "disabled" : ""}>${label}</button></div>`;
       } else if (tripsTotal != null && tripsTotal > 0) {
-        footHtml = `<div class="trips-end-note">已显示全部 ${tripsTotal} 段行程</div>`;
+        footHtml = `<div class="trips-end-note">已显示${currentPeriod === "all" ? "全部" : periodLabel(currentPeriod)} ${tripsTotal} 段行程</div>`;
       }
       tripsListEl.innerHTML = rowsHtml + footHtml;
     };
 
     const loadStats = async () => {
       try {
-        tripsStats = await nasFetch("/stats");
+        tripsStats = await nasFetch(`/stats?period=${encodeURIComponent(currentPeriod)}`);
+        if (tripsStats?.periods) availablePeriods = tripsStats.periods;
         tripsStatsLegacy = false;
       } catch (err) {
         tripsStats = null;
@@ -2994,7 +3139,7 @@
       tripsLoadingMore = false;
       try {
         const [d] = await Promise.all([
-          nasFetch(`/drives?limit=${TRIPS_PAGE_SIZE}&offset=0`),
+          nasFetch(`/drives?limit=${TRIPS_PAGE_SIZE}&offset=0&period=${encodeURIComponent(currentPeriod)}`),
           loadStats(),
         ]);
         trips = Array.isArray(d.drives) ? d.drives : [];
@@ -3012,7 +3157,7 @@
       tripsLoadingMore = true;
       renderTripsList();
       try {
-        const d = await nasFetch(`/drives?limit=${TRIPS_PAGE_SIZE}&offset=${trips.length}`);
+        const d = await nasFetch(`/drives?limit=${TRIPS_PAGE_SIZE}&offset=${trips.length}&period=${encodeURIComponent(currentPeriod)}`);
         const incoming = Array.isArray(d.drives) ? d.drives : [];
         const seen = new Set(trips.map((x) => x.id));
         for (const item of incoming) {
@@ -3030,6 +3175,98 @@
       }
     };
 
+    const renderFootprintBar = () => {
+      renderPeriodBars();
+      fpFogBtn.setAttribute("aria-pressed", String(footprintFog));
+      if (!footprintData) {
+        fpTitleEl.textContent = `我的足迹 · ${periodLabel(currentPeriod)}`;
+        fpMetaEl.textContent = "正在从 NAS 计算已解锁区域…";
+        fpPlacesEl.classList.add("hidden");
+        return;
+      }
+      const d = footprintData;
+      fpTitleEl.textContent = `我的足迹 · 已解锁约 ${fmtNum(d.area_km2)} km²`;
+      const parts = [
+        periodLabel(currentPeriod),
+        `${fmtNum(d.cell_count)} 个区域格`,
+        `${fmtNum(d.drive_count)} 段行程 · ${fmtNum(d.total_distance_km)} km`,
+      ];
+      fpMetaEl.textContent = parts.join(" · ");
+      const tags = [];
+      (d.prefectures || []).forEach((p) => tags.push(p));
+      (d.cities || []).forEach((c) => { if (!tags.includes(c)) tags.push(c); });
+      if (tags.length) {
+        fpPlacesEl.innerHTML = tags.slice(0, 20).map((t) => `<span class="fp-place-tag">${esc(t)}</span>`).join("");
+        fpPlacesEl.classList.remove("hidden");
+      } else {
+        fpPlacesEl.classList.add("hidden");
+      }
+    };
+
+    const loadFootprint = async ({ fit = true } = {}) => {
+      footprintData = null;
+      renderFootprintBar();
+      try {
+        const d = await nasFetch(`/footprint?period=${encodeURIComponent(currentPeriod)}`);
+        footprintData = d;
+        if (d.periods) availablePeriods = d.periods;
+        renderFootprintBar();
+        redrawFootprint();
+        if (fit && map && Array.isArray(d.bounds) && d.bounds.length === 4) {
+          const mobile = window.innerWidth <= 760;
+          map.fitBounds([[d.bounds[0], d.bounds[1]], [d.bounds[2], d.bounds[3]]], {
+            padding: mobile ? { top: 96, bottom: 200, left: 28, right: 28 } : { top: 96, bottom: 180, left: 80, right: 80 },
+            maxZoom: 12.5,
+            duration: 850,
+          });
+        }
+      } catch (err) {
+        const msg = String(err.message || "").includes("404")
+          ? "NAS 上的 bridge.py 还是旧版，请更新后再看足迹"
+          : `读取足迹失败：${err.message}`;
+        fpMetaEl.textContent = msg;
+        showToast(msg, 4000);
+      }
+    };
+
+    const openFootprint = () => {
+      if (!getNas().url) {
+        nasModal.classList.remove("hidden");
+        return;
+      }
+      footprintActive = true;
+      selectedTripId = null;
+      tripsModal.classList.add("hidden");
+      tripBar.classList.add("hidden");
+      redrawTrips();
+      document.getElementById("status-card").classList.add("hidden");
+      document.getElementById("car-pill-bar")?.classList.add("hidden");
+      const drawerEl = document.getElementById("drawer");
+      drawerEl.classList.add("collapsed");
+      document.getElementById("btn-toggle-drawer").setAttribute("aria-expanded", "false");
+      if (map.getLayer("reach-overlay-layer")) map.setLayoutProperty("reach-overlay-layer", "visibility", "none");
+      footprintBar.classList.remove("hidden");
+      loadFootprint({ fit: true });
+    };
+
+    const closeFootprint = () => {
+      footprintActive = false;
+      footprintData = null;
+      footprintBar.classList.add("hidden");
+      redrawFootprint();
+      updateReachability();
+      if (cardMinimized) document.getElementById("car-pill-bar")?.classList.remove("hidden");
+      else document.getElementById("status-card").classList.remove("hidden");
+    };
+
+    const selectPeriod = (nextPeriod) => {
+      if (!nextPeriod || nextPeriod === currentPeriod) return;
+      currentPeriod = nextPeriod;
+      renderPeriodBars();
+      if (footprintActive) loadFootprint({ fit: true });
+      if (!tripsModal.classList.contains("hidden")) loadTrips();
+    };
+
     const openTrips = () => {
       if (!getNas().url) {
         nasModal.classList.remove("hidden");
@@ -3042,6 +3279,12 @@
     const selectTrip = (id, { fit = true } = {}) => {
       const t = trips.find((x) => x.id === id);
       if (!t) return;
+      if (footprintActive) {
+        footprintActive = false;
+        footprintData = null;
+        footprintBar.classList.add("hidden");
+        redrawFootprint();
+      }
       selectedTripId = id;
       tripsModal.classList.add("hidden");
       // 看行程时把其他卡片收起来，地图留给轨迹
@@ -3104,6 +3347,25 @@
       const open = e.target.closest(".trip-open");
       if (open) selectTrip(Number(open.dataset.id));
     });
+    tripsPeriodBarEl.addEventListener("click", (e) => {
+      const btn = e.target.closest(".period-pill");
+      if (btn) selectPeriod(btn.dataset.period);
+    });
+    fpPeriodBarEl.addEventListener("click", (e) => {
+      const btn = e.target.closest(".period-pill");
+      if (btn) selectPeriod(btn.dataset.period);
+    });
+    document.getElementById("btn-open-footprint").addEventListener("click", openFootprint);
+    fpFogBtn.addEventListener("click", () => {
+      footprintFog = !footprintFog;
+      fpFogBtn.setAttribute("aria-pressed", String(footprintFog));
+      redrawFootprint();
+    });
+    document.getElementById("btn-fp-list").addEventListener("click", () => {
+      tripsModal.classList.remove("hidden");
+      loadTrips();
+    });
+    document.getElementById("btn-fp-close").addEventListener("click", closeFootprint);
     document.getElementById("btn-car-trips").addEventListener("click", openTrips);
     document.getElementById("btn-car-pill-trips").addEventListener("click", openTrips);
     document.getElementById("btn-trips-reload").addEventListener("click", loadTrips);
